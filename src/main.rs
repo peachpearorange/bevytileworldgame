@@ -21,6 +21,8 @@
 // pub mod bundletree;
 // pub mod ui;
 
+use std::mem::variant_count;
+
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
@@ -31,7 +33,8 @@ use {avian3d::prelude::*,
             math::{primitives, vec2, vec3, Vec3},
             pbr::StandardMaterial,
             prelude::*,
-            render::{render_resource::TextureViewDescriptor,
+            render::{mesh::MeshVertexAttribute,
+                     render_resource::TextureViewDescriptor,
                      texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor}},
             utils::{HashMap, HashSet},
             window::WindowMode},
@@ -240,7 +243,7 @@ enum Tile {
   Furniture(Furniture, MaterialKind)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum BlockType {
   Air,
@@ -252,10 +255,11 @@ pub enum BlockType {
   Sand,
   Dirt
 }
-const NUM_BLOCK_TYPES: usize = variant_count::<BlockType>();
+
 fn index_of_block_type(block_type: BlockType) -> u8 { block_type as u8 }
-fn block_type_of_index(index: u8) -> BlockType { BlockType::try_from(index).unwrap() }
-#[derive(Clone, Copy, PartialEq, Eq, Debug, TryFromPrimitive)]
+fn block_type_of_index(index: u8) -> BlockType { unsafe { std::mem::transmute(index) } }
+impl BlockType {}
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum BlockTexture {
   Bricks,
@@ -267,26 +271,42 @@ pub enum BlockTexture {
   Dirt
 }
 const NUM_BLOCK_TEXTURES: usize = variant_count::<BlockTexture>();
+const NUM_BLOCK_TYPES: usize = variant_count::<BlockType>();
 fn index_of_texture(block_texture: BlockTexture) -> u8 { block_texture as u8 }
-fn texture_of_index(index: u8) -> BlockTexture { BlockTexture::try_from(index).unwrap() }
+fn texture_of_index(index: u8) -> BlockTexture { unsafe { std::mem::transmute(index) } }
 
-pub fn voxel_mesh_all_same_texture(block_texture: BlockTexture) -> Mesh {
-  let index = index_of_texture(block_texture);
-  let coords = [index as u32, 0];
-  generate_voxel_mesh([1.0, 1.0, 1.0],
-                      [NUM_BLOCK_TEXTURES as u32, 1],
-                      [(Top, coords),
-                       (Bottom, coords),
-                       (Right, coords),
-
-                       (Left, coords),
-                       (Back, coords),
-                       (Forward, coords)],
-                      [0.0, 0.0, 0.0],
-                      0.0,
-                      Some(0.5),
-                      1.0)
-}
+// pub fn voxel_mesh_cube(block_texture: BlockTexture) -> bevy::render::mesh::Mesh {
+//   let index = index_of_texture(block_texture);
+//   let coords = [index as u32, 0];
+//   bevy_meshem::prelude::generate_voxel_mesh([1.0, 1.0, 1.0],
+//                                             [NUM_BLOCK_TEXTURES as u32, 1],
+//                                             [(bevy_meshem::prelude::Face::Top, coords),
+//                                              (bevy_meshem::prelude::Face::Bottom, coords),
+//                                              (bevy_meshem::prelude::Face::Right, coords),
+//                                              (bevy_meshem::prelude::Face::Left, coords),
+//                                              (bevy_meshem::prelude::Face::Back, coords),
+//                                              (bevy_meshem::prelude::Face::Forward, coords)],
+//                                             [0.0, 0.0, 0.0],
+//                                             0.0,
+//                                             Some(0.5),
+//                                             1.0)
+// }
+// pub fn voxel_mesh_floor(block_texture: BlockTexture) -> bevy::render::mesh::Mesh {
+//   let index = index_of_texture(block_texture);
+//   let coords = [index as u32, 0];
+//   bevy_meshem::prelude::generate_voxel_mesh([1.0, 1.0, 1.0],
+//                                             [NUM_BLOCK_TEXTURES as u32, 1],
+//                                             [(bevy_meshem::prelude::Face::Top, coords),
+//                                              (bevy_meshem::prelude::Face::Bottom, coords),
+//                                              (bevy_meshem::prelude::Face::Right, coords),
+//                                              (bevy_meshem::prelude::Face::Left, coords),
+//                                              (bevy_meshem::prelude::Face::Back, coords),
+//                                              (bevy_meshem::prelude::Face::Forward, coords)],
+//                                             [0.0, 0.0, 0.0],
+//                                             0.0,
+//                                             Some(0.5),
+//                                             1.0)
+// }
 fn array_range<const LEN: usize>() -> [usize; LEN] {
   let mut arr = [0; LEN];
   for i in 0..LEN {
@@ -294,153 +314,28 @@ fn array_range<const LEN: usize>() -> [usize; LEN] {
   }
   arr
 }
-#[derive(Resource)]
-pub struct MyVoxelRegistry {
-  mesh_by_block_type_index: [Option<Mesh>; NUM_BLOCK_TYPES]
-}
-impl Default for MyVoxelRegistry {
-  fn default() -> Self {
-    Self { mesh_by_block_type_index: array_range().map(|i| {
-                                                    let block_type =
-                                                      block_type_of_index(i as u8);
-                                                    match block_type{
-                BlockType::Air => None,
-                BlockType::Bricks => Some(voxel_mesh_all_same_texture(BlockTexture::Bricks)),
-                BlockType::Grass => Some(voxel_mesh_all_same_texture(BlockTexture::Grass)),
-                BlockType::Rocks => Some(voxel_mesh_all_same_texture(BlockTexture::Rocks)),
-                BlockType::Snow => Some(voxel_mesh_all_same_texture(BlockTexture::Snow)),
-                BlockType::Stone => Some(voxel_mesh_all_same_texture(BlockTexture::Stone)),
-                BlockType::Sand => Some(voxel_mesh_all_same_texture(BlockTexture::Sand)),
-                BlockType::Dirt => Some(voxel_mesh_all_same_texture(BlockTexture::Dirt)),
-            }
-                                                  }) }
-  }
-}
-impl VoxelRegistry for MyVoxelRegistry {
-  type Voxel = BlockType;
-
-  fn get_mesh(&self, voxel: &Self::Voxel) -> VoxelMesh<&Mesh> {
-    let om: Option<&Mesh> = self.mesh_by_block_type_index
-                                .get(index_of_block_type(*voxel) as usize)
-                                .unwrap()
-                                .as_ref();
-    match om {
-      None => VoxelMesh::Null,
-      Some(mesh) => VoxelMesh::NormalCube(mesh)
-    }
-  }
-  fn is_covering(&self, voxel: &Self::Voxel, _side: bevy_meshem::prelude::Face) -> bool {
-    match voxel {
-      BlockType::Air => false,
-      _ => true
-    }
-  }
-  fn get_center(&self) -> [f32; 3] { [0.0; 3] }
-  fn get_voxel_dimensions(&self) -> [f32; 3] { [1.0; 3] }
-  fn all_attributes(&self) -> Vec<bevy::render::mesh::MeshVertexAttribute> {
-    vec![Mesh::ATTRIBUTE_POSITION,
-         Mesh::ATTRIBUTE_UV_0,
-         Mesh::ATTRIBUTE_NORMAL,
-         Mesh::ATTRIBUTE_COLOR]
-  }
-}
-
 const CHUNK_SIDE_LENGTH: usize = 16;
 const CHUNK_VOLUME: usize = CHUNK_SIDE_LENGTH.pow(3);
-const MESHING_ALGORITHM: MeshingAlgorithm = bevy_meshem::prelude::MeshingAlgorithm::Culling;
-
-#[derive(Component)]
-struct Meshy {
-  metadata: MeshMD<BlockType>,
-  grid: [BlockType; CHUNK_VOLUME]
-}
-
-// fn floating_island()
-// fn city_block([x,y,z]:[usize;3])->BlockType{
-
-// }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
 #[derive(Component)]
 struct MeshInfo;
 type Chunk = [BlockType; CHUNK_VOLUME];
 const AIR_CHUNK: Chunk = [BlockType::Air; CHUNK_VOLUME];
-fn spawn_blocks(chunks: &mut HashMap<IVec3, Chunk>,
-                level: impl Iterator<Item = (IVec3, BlockType)>) {
-  for (IVec3 { x, y, z }, block_type) in level {
-    if block_type != BlockType::Air {
-      let rem_euclid = |n: i32| n.rem_euclid(CHUNK_SIDE_LENGTH as i32) as usize;
-      let div_euclid = |n: i32| n.div_euclid(CHUNK_SIDE_LENGTH as i32);
-      let chunk_id = IVec3::new(div_euclid(x), div_euclid(y), div_euclid(z));
-      let x_within = rem_euclid(x);
-      let y_within = rem_euclid(y);
-      let z_within = rem_euclid(z);
-      let index_within =
-        x_within + z_within * CHUNK_SIDE_LENGTH + y_within * (CHUNK_SIDE_LENGTH).pow(2);
-      if chunks.get(&chunk_id) == None {
-        chunks.insert(chunk_id, AIR_CHUNK);
+pub fn cuboid_full_iter(lower_corner: IVec3,
+                        side_lengths: IVec3)
+                        -> impl Iterator<Item = IVec3> {
+  let mut v = Vec::new();
+  for x in 0..side_lengths.x {
+    for y in 0..side_lengths.y {
+      for z in 0..side_lengths.z {
+        v.push(lower_corner + IVec3 { x, y, z })
       }
-      chunks.get_mut(&chunk_id).unwrap()[index_within] = block_type;
     }
   }
+  v.into_iter()
 }
-pub fn voxels_init(mvr: Res<MyVoxelRegistry>,
-                   mut c: Commands,
-                   amah: Res<AllMyAssetHandles>,
-                   mut meshes: ResMut<Assets<Mesh>>) {
-  let mut chunks: HashMap<IVec3, Chunk> = HashMap::new();
-  spawn_blocks(&mut chunks,
-               level().map(|([x, y, z], tile)| {
-                        (IVec3 { x: x as i32,
-                                 y: y as i32,
-                                 z: z as i32 },
-                         match tile {
-                           'g' => BlockType::Grass,
-                           's' => BlockType::Snow,
-                           'S' => BlockType::Bricks,
-                           'k' => BlockType::Rocks,
-                           'j' => BlockType::Stone,
-                           _ => BlockType::Air
-                         })
-                      }));
-  spawn_blocks(&mut chunks,
-               sphere_full_iter(IVec3 { x: -50,
-                                        y: 4,
-                                        z: 50 },
-                                30).map(|pos| {
-                                     (pos,
-                                      pick([BlockType::Grass,
-                                            BlockType::Snow,
-                                            BlockType::Bricks,
-                                            BlockType::Rocks,
-                                            BlockType::Stone]))
-                                   }));
-  let dims: Dimensions = (CHUNK_SIDE_LENGTH, CHUNK_SIDE_LENGTH, CHUNK_SIDE_LENGTH);
-  // let smooth_lighting_params = Some(SmoothLightingParameters { intensity: 0.3,
-  //                                                              max: 0.8,
-  //                                                              smoothing: 1.1,
-  //                                                              apply_at_gen: true });
-  let smooth_lighting_params = None;
-
-  for (chunk_id, chunk) in chunks {
-    let chunk_translation = (chunk_id * (CHUNK_SIDE_LENGTH as i32)).as_vec3();
-    let (culled_mesh, metadata) = mesh_grid(dims,
-                                            &[],
-                                            &chunk,
-                                            mvr.as_ref(),
-                                            MESHING_ALGORITHM,
-                                            smooth_lighting_params).unwrap();
-    let culled_mesh_handle: Handle<Mesh> = meshes.add(culled_mesh.clone());
-    let meshy = Meshy { grid: chunk,
-                        metadata };
-    c.spawn((
-      PbrBundle { mesh: culled_mesh_handle,
-                  material: amah.blocks_material(),
-                  transform: Transform::from_translation(chunk_translation),
-                  // visibility: Visibility::Hidden,
-                  ..default() },
-      AsyncCollider(bevy_rapier3d::geometry::ComputedColliderShape::TriMesh) // meshy
-    ));
-  }
+pub fn sphere_full_iter(center: IVec3, radius: i32) -> impl Iterator<Item = IVec3> {
+  cuboid_full_iter(center - IVec3::splat(radius),IVec3::splat(radius * 2)).filter(move |v: &IVec3| v.distance_squared(center) <= radius.pow(2))
 }
 #[derive(Component, Clone, PartialEq, Eq, Default)]
 pub struct Visuals {
@@ -671,28 +566,6 @@ fn avg<T: std::iter::Sum + std::ops::Div<f32, Output = T>>(coll: impl IntoIterat
   let s = v.into_iter().sum::<T>();
   (n != 0).then(|| s / (n as f32))
 }
-pub fn capsule_from_height_and_radius(height: f32, radius: f32) -> Collider {
-  Collider::capsule(height - (radius * 2.0), radius)
-}
-// pub fn click_target(mut parent_q: Query<&Parent>,
-//                     mut click_events: EventReader<bevy_mod_picking::events::Pointer<bevy_mod_picking::events::Click>>,
-//                     mut player_q: Query<&mut Player>) {
-//   if let Ok(mut player) = player_q.get_single_mut() {
-//     for event in click_events.read() {
-//       println(debugfmt(event));
-//       let mut root_entity = event.target;
-//       while let Ok(parent) = parent_q.get(root_entity) {
-//         root_entity = parent.get();
-//       }
-//       println!("Player target set to {root_entity}");
-//     }
-//   }
-// }
-// type ClickTargetChild = (PbrBundle,
-//                          NotShadowCaster,
-//                          NotShadowReceiver,
-//                          Highlight<StandardMaterial>,
-//                          PickableBundle);
 
 fn camera_follow_player(mut camq: Query<&mut PanOrbitCamera>,
                         playerq: Query<&Transform, With<Player>>) {
@@ -719,85 +592,6 @@ enum NavigationKind {
   Chase(Entity) // ChaseAtRange(Entity, f32)
 }
 
-fn navigation(mut navigators_q: Query<(&Navigation,
-                     &Transform,
-                     &mut ExternalForce,
-                     &mut LinearVelocity)>,
-              chase_targets_q: Query<&Transform>,
-              time: Res<Time>) {
-  let to_vec3 = |Vec2 { x, y }| Vec3 { x, y: 0.0, z: y };
-  let to_vec2 = |Vec3 { x, y, z }| Vec2 { x, y: z };
-  for (nav, transform, mut force, mut velocity) in navigators_q.iter_mut() {
-    let linvelnew =
-      nav.max_speed
-      * match nav.navigation_kind {
-        NavigationKind::None => default(),
-        NavigationKind::Vec2(vec2) => to_vec3(vec2.normalize_or_zero()),
-        NavigationKind::Pos(vec2) => {
-          (to_vec3(vec2) - transform.translation).normalize_or_zero()
-        }
-        NavigationKind::Chase(entity) => {
-          (chase_targets_q.get(entity)
-                          .map(|t| {
-                            (t.translation - transform.translation).normalize_or_zero()
-                          })
-                          .unwrap_or_default())
-        }
-      };
-    velocity.0 = linvelnew;
-  }
-}
-
-#[derive(Component)]
-struct Monster {
-  is_dormant: bool
-}
-fn monster_movement(mut monsterq: Query<(&mut Navigation, &mut Monster, &Transform)>,
-                    playerq: Query<(Entity, &Player, &Transform)>,
-                    time: Res<TimeTicks>) {
-  if let Ok((player_entity, player, player_transform)) = playerq.get_single() {
-    for (mut monsternav, mut monster, monster_transform) in &mut monsterq {
-      let dist = player_transform.translation
-                                 .distance(monster_transform.translation);
-
-      if (dist < MONSTER_SEE_DARK_RANGE)
-         || (player.light_on && (dist < MONSTER_SEE_LIT_RANGE))
-      {
-        *monsternav = Navigation { max_speed: MONSTER_MAX_SPEED_CHASE,
-                                   navigation_kind: NavigationKind::Chase(player_entity) };
-        monster.is_dormant = false;
-      } else {
-        if !monster.is_dormant {
-          if time.0 % 300 == 0 {
-            let dir = random::<Dir2>().as_vec2().normalize_or_zero();
-            *monsternav = Navigation { max_speed: MONSTER_MAX_SPEED,
-                                       navigation_kind: NavigationKind::Vec2(dir) };
-          }
-        }
-      }
-    }
-  }
-}
-pub fn player_movement(keyboard_input: Res<ButtonInput<KeyCode>>,
-                       gameover: Res<GameOver>,
-                       camera_query: Query<&Transform, With<Camera3d>>,
-                       mut player_query: Query<&mut Navigation, With<Player>>) {
-  if let Ok(camera_transform) = camera_query.get_single()
-     && let Ok(mut navigation) = player_query.get_single_mut()
-     && !gameover.0
-  {
-    let forward =
-      vec2(camera_transform.forward().x, camera_transform.forward().z).normalize_or_zero();
-    let right = vec2(-forward.y, forward.x);
-    let Vec2 { x, y } = sum(filter_map(|(key, v)| keyboard_input.pressed(key).then_some(v),
-                                       [(KeyCode::KeyA, Vec2::NEG_X),
-                                        (KeyCode::KeyS, Vec2::NEG_Y),
-                                        (KeyCode::KeyD, Vec2::X),
-                                        (KeyCode::KeyW, Vec2::Y)])).normalize_or_zero();
-    let keyb_dir = (x * right) + (y * forward);
-    navigation.navigation_kind = NavigationKind::Vec2(keyb_dir);
-  }
-}
 #[derive(Default, Resource)]
 pub struct TimeTicks(pub u32);
 pub fn increment_time(mut time: ResMut<TimeTicks>) { time.0 += 1; }
@@ -1142,7 +936,6 @@ pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
 
 fn rangerand(lo: f32, hi: f32) -> f32 { lo.lerp(hi, rand::random::<f32>()) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
-fn prob(p: f32) -> bool { p > rand::random::<f32>() }
 
 const NOTES:&[&'static str] = &[
   "WIN",
@@ -1314,39 +1107,39 @@ fn portal(pos: Vec3) -> impl Bundle {
 //    Navigation::new(MONSTER_MAX_SPEED),
 //    CharacterBundle::new(pos, true, Visuals::sprite(MySprite::SPACEWIZARD)))
 // }
-fn treemonster(pos: Vec3) -> impl Bundle {
-  (Monster { is_dormant: true },
-   name("tree monster"),
-   Proximal { distance: MONSTER_CATCH_RANGE },
-   Navigation::new(MONSTER_MAX_SPEED),
-   CharacterBundle::new(pos, true, Visuals::sprite(MySprite::TREEMONSTER)))
-}
-fn tree(pos: Vec3) -> impl Bundle {
-  (name("ghost"), CharacterBundle::new(pos, false, Visuals::sprite(MySprite::TREE)))
-}
-fn tent(pos: Vec3) -> impl Bundle {
-  (name("tent"),
-   Note("It's a tent"),
-   Proximal { distance: NOTE_FIND_RANGE },
-   CharacterBundle::new(pos, false, Visuals::sprite(MySprite::TENT)))
-}
-fn car(pos: Vec3) -> impl Bundle {
-  (Visuals::unlit_sprite(MySprite::CAR),
-   Note("You thought it'd be fun to drive through this forest but your car ran out of gas"),
-   Proximal { distance: NOTE_FIND_RANGE },
-   FaceCamera,
-   PointLightBundle { transform: Transform::from_translation(pos),
-                      point_light: TORCH_LIGHT,
-                      ..default() })
-}
-fn wall(pos: Vec3) -> impl Bundle {}
+// fn treemonster(pos: Vec3) -> impl Bundle {
+//   (Monster { is_dormant: true },
+//    name("tree monster"),
+//    Proximal { distance: MONSTER_CATCH_RANGE },
+//    Navigation::new(MONSTER_MAX_SPEED),
+//    CharacterBundle::new(pos, true, Visuals::sprite(MySprite::TREEMONSTER)))
+// }
+// fn tree(pos: Vec3) -> impl Bundle {
+//   (name("ghost"), CharacterBundle::new(pos, false, Visuals::sprite(MySprite::TREE)))
+// }
+// fn tent(pos: Vec3) -> impl Bundle {
+//   (name("tent"),
+//    Note("It's a tent"),
+//    Proximal { distance: NOTE_FIND_RANGE },
+//    CharacterBundle::new(pos, false, Visuals::sprite(MySprite::TENT)))
+// }
+// fn car(pos: Vec3) -> impl Bundle {
+//   (Visuals::unlit_sprite(MySprite::CAR),
+//    Note("You thought it'd be fun to drive through this forest but your car ran out of gas"),
+//    Proximal { distance: NOTE_FIND_RANGE },
+//    FaceCamera,
+//    PointLightBundle { transform: Transform::from_translation(pos),
+//                       point_light: TORCH_LIGHT,
+//                       ..default() })
+// }
+// fn wall(pos: Vec3) -> impl Bundle {}
 
-fn player(translation: Vec3) -> impl Bundle {
-  (Player::default(),
-   name("You"),
-   Navigation::new(PLAYER_MAX_SPEED),
-   CharacterBundle::new(translation, true, Visuals::sprite(MySprite::PLAYER)))
-}
+// fn player(translation: Vec3) -> impl Bundle {
+//   (Player::default(),
+//    name("You"),
+//    Navigation::new(PLAYER_MAX_SPEED),
+//    CharacterBundle::new(translation, true, Visuals::sprite(MySprite::PLAYER)))
+// }
 
 // fn reset(mut world: &mut World) {
 //   let mut gameover = world.resource_mut::<GameOver>();
@@ -1560,6 +1353,170 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   println("setup");
 }
 
+use fast_surface_nets::{glam::{Vec2, Vec3A},
+                        ndshape::{ConstShape, ConstShape3u32},
+                        surface_nets, SurfaceNetsBuffer};
+
+use {bevy::{pbr::wireframe::{WireframeConfig, WireframePlugin},
+            prelude::*,
+            render::{mesh::{Indices, VertexAttributeValues},
+                     render_resource::{PrimitiveTopology, WgpuFeatures},
+                     settings::WgpuSettings}},
+     obj_exporter::{export_to_file, Geometry, ObjSet, Object, Primitive, Shape, Vertex}};
+
+fn main() {
+  App::new().add_plugins(DefaultPlugins)
+            .add_plugin(WireframePlugin)
+            .add_startup_system(setup)
+            .run();
+}
+
+fn setup(mut c: Commands,
+         mut wireframe_config: ResMut<WireframeConfig>,
+         mut materials: ResMut<Assets<StandardMaterial>>,
+         mut meshes: ResMut<Assets<Mesh>>) {
+  wireframe_config.global = true;
+
+  c.spawn_bundle(PointLightBundle { transform:
+                                      Transform::from_translation(Vec3::new(25.0, 25.0,
+                                                                            25.0)),
+                                    point_light: PointLight { range: 200.0,
+                                                              intensity: 8000.0,
+                                                              ..Default::default() },
+                                    ..Default::default() });
+  c.spawn(Camera3dBundle::default())
+   .insert(bevy_debug_camera::DebugCamera { position: Vec3::new(-5., 1., 0.),
+                                            ..default() });
+  // c.spawn_bundle(PerspectiveCameraBundle {
+  //       transform: Transform::from_translation(Vec3::new(50.0, 15.0, 50.0))
+  //           .looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+  //       ..Default::default()
+  //   });
+
+  let (sphere_buffer, sphere_mesh) = sdf_to_mesh(&mut meshes, |p| sphere(0.9, p));
+  let (cube_buffer, cube_mesh) = sdf_to_mesh(&mut meshes, |p| cube(Vec3A::splat(0.5), p));
+  let (link_buffer, link_mesh) = sdf_to_mesh(&mut meshes, |p| link(0.26, 0.4, 0.18, p));
+
+  spawn_pbr(&mut c,
+            &mut materials,
+            sphere_mesh,
+            Transform::from_translation(Vec3::new(-16.0, -16.0, -16.0)));
+  spawn_pbr(&mut c,
+            &mut materials,
+            cube_mesh,
+            Transform::from_translation(Vec3::new(-16.0, -16.0, 16.0)));
+  spawn_pbr(&mut c,
+            &mut materials,
+            link_mesh,
+            Transform::from_translation(Vec3::new(16.0, -16.0, -16.0)));
+
+  write_mesh_to_obj_file("sphere".into(), &sphere_buffer);
+  write_mesh_to_obj_file("cube".into(), &cube_buffer);
+  write_mesh_to_obj_file("link".into(), &link_buffer);
+}
+
+fn sdf_to_mesh(meshes: &mut Assets<Mesh>,
+               sdf: impl Fn(Vec3A) -> f32)
+               -> (SurfaceNetsBuffer, Handle<Mesh>) {
+  type SampleShape = ConstShape3u32<34, 34, 34>;
+
+  let mut samples = [1.0; SampleShape::SIZE as usize];
+  for i in 0u32..(SampleShape::SIZE) {
+    let p = into_domain(32, SampleShape::delinearize(i));
+    samples[i as usize] = sdf(p);
+  }
+
+  let mut buffer = SurfaceNetsBuffer::default();
+  surface_nets(&samples, &SampleShape {}, [0; 3], [33; 3], &mut buffer);
+
+  let num_vertices = buffer.positions.len();
+
+  let mut render_mesh =
+    Mesh::new(PrimitiveTopology::TriangleList,
+              bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD);
+  render_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION,
+                               VertexAttributeValues::Float32x3(buffer.positions.clone()));
+  render_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL,
+                               VertexAttributeValues::Float32x3(buffer.normals.clone()));
+  render_mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0,
+                               VertexAttributeValues::Float32x2(vec![
+                                 [0.0; 2];
+                                 num_vertices
+                               ]));
+  render_mesh.set_indices(Some(Indices::U32(buffer.indices.clone())));
+
+  (buffer, meshes.add(render_mesh))
+}
+
+fn spawn_pbr(commands: &mut Commands,
+             materials: &mut Assets<StandardMaterial>,
+             mesh: Handle<Mesh>,
+             transform: Transform) {
+  let mut material = StandardMaterial::from(Color::rgb(0.0, 0.0, 0.0));
+  material.perceptual_roughness = 0.9;
+
+  commands.spawn_bundle(PbrBundle { mesh,
+                                    material: materials.add(material),
+                                    transform,
+                                    ..Default::default() });
+}
+
+fn write_mesh_to_obj_file(name: String, buffer: &SurfaceNetsBuffer) {
+  let filename = format!("{}.obj", name);
+  export_to_file(&ObjSet { material_library: None,
+                           objects: vec![Object { name,
+                                                  vertices: buffer.positions
+                                                                  .iter()
+                                                                  .map(|&[x, y, z]| {
+                                                                    Vertex { x: x as f64,
+                                                                             y: y as f64,
+                                                                             z: z as f64 }
+                                                                  })
+                                                                  .collect(),
+                                                  normals: buffer.normals
+                                                                 .iter()
+                                                                 .map(|&[x, y, z]| {
+                                                                   Vertex { x: x as f64,
+                                                                            y: y as f64,
+                                                                            z: z as f64 }
+                                                                 })
+                                                                 .collect(),
+                                                  geometry: vec![Geometry {
+                    material_name: None,
+                    shapes: buffer
+                        .indices
+                        .chunks(3)
+                        .map(|tri| Shape {
+                            primitive: Primitive::Triangle(
+                                (tri[0] as usize, None, Some(tri[0] as usize)),
+                                (tri[1] as usize, None, Some(tri[1] as usize)),
+                                (tri[2] as usize, None, Some(tri[2] as usize)),
+                            ),
+                            groups: vec![],
+                            smoothing_groups: vec![],
+                        })
+                        .collect(),
+                }],
+                                                  tex_vertices: vec![] }] },
+                 filename).unwrap();
+}
+
+fn into_domain(array_dim: u32, [x, y, z]: [u32; 3]) -> Vec3A {
+  (2.0 / array_dim as f32) * Vec3A::new(x as f32, y as f32, z as f32) - 1.0
+}
+
+fn sphere(radius: f32, p: Vec3A) -> f32 { p.length() - radius }
+
+fn cube(b: Vec3A, p: Vec3A) -> f32 {
+  let q = p.abs() - b;
+  q.max(Vec3A::ZERO).length() + q.max_element().min(0.0)
+}
+
+fn link(le: f32, r1: f32, r2: f32, p: Vec3A) -> f32 {
+  let q = Vec3A::new(p.x, (p.y.abs() - le).max(0.0), p.z);
+  Vec2::new(q.length() - r1, q.z).length() - r2
+}
+
 #[bevy_main]
 pub fn main() {
   let gravity = avian3d::dynamics::integrator::Gravity::default();
@@ -1591,7 +1548,9 @@ pub fn main() {
       // bevy::pbr::ScreenSpaceAmbientOcclusionPlugin
       DefaultPlugins
       .set(bevy::render::RenderPlugin {
+
         render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
+          features: WgpuFeatures::POLYGON_MODE_LINE,
           backends: Some(bevy::render::settings::Backends::DX12),
           ..default()
         }),
@@ -1615,6 +1574,8 @@ pub fn main() {
 
       // bevy_vox_scene::VoxScenePlugin,
       bevy_sprite3d::Sprite3dPlugin,
+
+      bevy_debug_camera::DebugCameraPlugin::default(),
       bevy_panorbit_camera::PanOrbitCameraPlugin,
       bevy_mod_billboard::prelude::BillboardPlugin,
       // bevy_mod_picking::DefaultPickingPlugins,
@@ -1632,15 +1593,17 @@ pub fn main() {
     .insert_resource(solver_config)
     .insert_resource(ClearColor(CLEAR_COLOR))
     .insert_resource(AMBIENT_LIGHT)
+
+    .insert_resource(Msaa::Sample4)
     .add_systems(Startup, (setup// ,add_global_highlight
                            // ,ui
     ).chain())
     .add_systems(Update,(
       close_on_esc,
-      toggle_flashlight,
-      navigation,
-      player_movement,
-      monster_movement,
+      // toggle_flashlight,
+      // navigation,
+      // player_movement,
+      // monster_movement,
       camera_follow_player,
       increment_time,
       origin_time,
