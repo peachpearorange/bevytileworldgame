@@ -21,32 +21,28 @@
 // pub mod bundletree;
 // pub mod ui;
 
-use std::mem::variant_count;
-
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
-            core_pipeline::{bloom::{BloomCompositeMode, BloomPrefilterSettings,
-                                    BloomSettings},
-                            Skybox},
-            math::{primitives, vec2, vec3, Vec3},
+            core_pipeline::bloom::{BloomCompositeMode, BloomPrefilterSettings,
+                                   BloomSettings},
+            math::{primitives, vec3},
             pbr::StandardMaterial,
             prelude::*,
-            render::{mesh::MeshVertexAttribute,
-                     render_resource::TextureViewDescriptor,
-                     texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor}},
+            render::texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor},
             utils::{HashMap, HashSet},
             window::WindowMode},
      bevy_embedded_assets::*,
      bevy_panorbit_camera::PanOrbitCamera,
      bevy_quill::{prelude::*, QuillPlugin, ViewChild},
      bevy_quill_overlays::QuillOverlaysPlugin,
+     bevy_voxel_world::prelude::*,
      dynamics::solver::SolverConfig,
      fancy_constructor::new,
      rand::{random, thread_rng},
      rust_utils::*,
-     std::f32::consts::PI};
+     std::{f32::consts::PI, mem::variant_count, sync::Arc}};
 // ui::UIData
 
 pub const AMBIENT_LIGHT_COLOR: Color = Color::hsv(301.0, 1.0, 1.0);
@@ -483,29 +479,439 @@ pub fn face_camera(camq: Query<&GlobalTransform, With<Camera3d>>,
     }
   }
 }
+enum Things {
+  A,
+  B,
+  C
+}
 
-#[derive(Component)]
-struct PlayerFlashlight;
-#[derive(Component)]
-struct PlayerAmbientlight;
-fn toggle_flashlight(mut c: Commands,
-                     mut playerq: Query<&mut Player>,
-                     mut flashlightq: Query<&mut Visibility, With<PlayerFlashlight>>,
-                     keyboard_input: Res<ButtonInput<KeyCode>>) {
-  if keyboard_input.just_pressed(KeyCode::KeyF)
-     && let Ok(mut player) = playerq.get_single_mut()
-  {
-    player.light_on = !player.light_on;
-    for mut flashlight_visibility in &mut flashlightq {
-      println("toggled flashlight");
-      *flashlight_visibility = match *flashlight_visibility {
-        Visibility::Inherited => Visibility::Hidden,
-        Visibility::Hidden => Visibility::Visible,
-        Visibility::Visible => Visibility::Hidden
-      }
-    }
+impl Things {
+  fn aa(self) {
+    use Things::*;
+    match self {
+      A => {}
+      B => {}
+      C => {}
+    };
   }
 }
+
+struct Spawnable(fn(&mut Commands, Vec3));
+
+// impl Spawnable {
+//   fn spawn(self, mut c: &mut Commands, pos: Vec3) { self.0(c, pos); }
+//   const TIME_TRAVELERS: Self = Self(|c, pos| {
+//     let randpos = || pos + random_normalized_vector() * 12.0;
+//     c.spawn(talking_person_in_space(randpos(),
+//                                     MySprite::SPACEMAN,
+//                                     "Marie Curie",
+//                                     MARIE_CURIE_DIALOGUE));
+//     c.spawn(talking_person_in_space(randpos(),
+//                                     MySprite::SPACEWIZARD,
+//                                     "Chronos, the Space Wizard of Time and Dimension",
+//                                     CHRONOS_SPACE_WIZARD_DIALOGUE));
+//     c.spawn(talking_person_in_space(randpos(),
+//                                     MySprite::SPACEMAN,
+//                                     "Socrates",
+//                                     SOCRATES_DIALOGUE));
+//     c.spawn(talking_person_in_space(randpos(),
+//                                     MySprite::SPACEMAN,
+//                                     "Abraham Lincoln",
+//                                     ABRAHAM_LINCOLN_DIALOGUE));
+//     c.spawn(talking_person_in_space(randpos(),
+//                                     MySprite::SPACEMAN,
+//                                     "Cleopatra",
+//                                     CLEOPATRA_DIALOGUE));
+//     c.spawn(talking_person_in_space(randpos(),
+//                                     MySprite::SPACEMAN,
+//                                     "Leonardo Da Vinci",
+//                                     LEONARDO_DA_VINCI_DIALOGUE));
+//   });
+// }
+
+// type EB = EntityBundle;
+// const ENEMY: EB = EB::Enemy((Char('👿'),
+//                              name("enemy"),
+//                              EnemyMovement,
+//                              AttackPlayer,
+//                              Combat { hp: 30, damage: 1 }));
+// const SPIDER: EB = EB::Enemy((Char('🕷'),
+//                               name("spider"),
+//                               EnemyMovement,
+//                               AttackPlayerr,
+//                               Combat { hp: 40, damage: 1 }));
+// const DRAGON: EB = EB::Dragon((Char('🐉'),
+//                                name("dragon"),
+//                                EnemyMovement,
+//                                DragonAttack,
+//                                AttackPlayer,
+//                                Combat { hp: 60, damage: 1 }));
+// const FIRE: EB = EB::Fire((Char('🔥'), name("fire"), Fire { dir: (1, 0) }));
+// const SNOWMAN: EB = EB::Animal((Char('⛄'), name("snowman"), RandomMovement));
+// const SHEEP: EB = EB::Animal((Char('🐑'), name("sheep"), RandomMovement));
+// const DUCK: EB = EB::Animal((Char('🦆'), name("duck"), RandomMovement));
+// const RABBIT: EB = EB::Animal((Char('🐇'), name("rabbit"), RandomMovement));
+// fn tb(walkable: bool,
+//       color: &'static str,
+//       name: &'static str,
+//       char: Option<char>)
+//       -> TileBundle {
+//   let color = color.to_string();
+//   let name = name(name);
+//   let tile: Tile = Tile { walkable, color };
+//   match char {
+//     Some(c) => TB::WithChar((tile, name, Char(c))),
+//     None => TB::WithoutChar((tile, name))
+//   }
+// }
+// const WALL: TB = tb(false, "#666666", "wall", Some('#'));
+// const TREE: TB = tb(false, "#27AD00", "tree", Some('🌲'));
+// const ROCK: TB = tb(false, "#71A269", "rock", Some('🪨'));
+// const WATER: TB = tb(false, "#5961FF", "water", None);
+// const SAND: TB = tb(true, "#D9DC60", "sand", None);
+// const GRASS: TB = tb(true, "#22B800", "grass", None);
+// const NORMAL_NPC_SCALE: f32 = 1.9;
+// const NORMAL_NPC_THRUST: f32 = 400.0;
+
+macro_rules! create_spawnables {
+  ($($name:ident => $body:expr),* $(,)?) => {
+    impl Spawnable {
+      $(
+        pub const $name: Self = Self(|commands, pos| {
+          // use Spawnable::*;
+          let bundle = ($body)(pos);
+          commands.spawn(bundle);
+        });
+      )*
+    }
+  };
+}
+fn basic_animal(pos: Vec2, nameval: impl Into<String>, char: char) -> impl Bundle {
+  (name(nameval),
+   Char(char),
+   RandomMovement,
+   SpaceObjectBundle::new(pos, NORMAL_NPC_SCALE, true, Visuals::character(char)))
+}
+
+fn basic_tile(pos: Vec2,
+              walkable: bool,
+              color: &'static str,
+              name: &'static str,
+              char: Option<char>)
+              -> impl Bundle {
+  let tile = Tile { walkable,
+                    color: color.to_string() };
+  let base_bundle =
+    (tile, name(name), SpaceObjectBundle::new(pos, 1.0, false, Visuals::colored(color)));
+
+  match char {
+    Some(c) => (base_bundle, Char(c)),
+    None => base_bundle
+  }
+}
+create_spawnables! {
+
+  // Animals
+  SNOWMAN => |pos| basic_animal(pos, "snowman", '⛄'),
+  SHEEP => |pos| basic_animal(pos, "sheep", '🐑'),
+  DUCK => |pos| basic_animal(pos, "duck", '🦆'),
+  RABBIT => |pos| basic_animal(pos, "rabbit", '🐇'),
+
+  // Tiles
+  WALL => |pos| basic_tile(pos, false, "#666666", "wall", Some('#')),
+  TREE => |pos| basic_tile(pos, false, "#27AD00", "tree", Some('🌲')),
+  ROCK => |pos| basic_tile(pos, false, "#71A269", "rock", Some('🪨')),
+  WATER => |pos| basic_tile(pos, false, "#5961FF", "water", None),
+  SAND => |pos| basic_tile(pos, true, "#D9DC60", "sand", None),
+  GRASS => |pos| basic_tile(pos, true, "#22B800", "grass", None),
+
+  // Enemies
+  ENEMY => |pos| {
+    (
+      name("enemy"),
+      Char('👿'),
+      EnemyMovement,
+      AttackPlayer,
+      Combat { hp: 30, damage: 1 },
+      SpaceObjectBundle::new(pos, NORMAL_NPC_SCALE, true, Visuals::character('👿'))
+    )
+  },
+  SPIDER => |pos| {
+    (
+      name("spider"),
+      Char('🕷'),
+      EnemyMovement,
+      AttackPlayer,
+      Combat { hp: 40, damage: 1 },
+      SpaceObjectBundle::new(pos, NORMAL_NPC_SCALE, true, Visuals::character('🕷'))
+    )
+  },
+  DRAGON => |pos| {
+    (
+      name("dragon"),
+      Char('🐉'),
+      EnemyMovement,
+      DragonAttack,
+      AttackPlayer,
+      Combat { hp: 60, damage: 1 },
+      SpaceObjectBundle::new(pos, NORMAL_NPC_SCALE, true, Visuals::character('🐉'))
+    )
+  },
+  FIRE => |pos| {
+    (
+      name("fire"),
+      Char('🔥'),
+      Fire { dir: (1, 0) },
+      SpaceObjectBundle::new(pos, 1.0, false, Visuals::character('🔥'))
+    )
+  }
+  SPACE_PIRATE => |pos| {
+    (IsHostile(true),
+     scaled_enemy(pos,
+                  NORMAL_NPC_SCALE,
+                  "space pirate",
+                  NORMAL_NPC_THRUST,
+                  Faction::SpacePirates,
+                  50,
+                  MySprite::SPACESHIPRED))
+  },
+  SPACE_PIRATE_BASE => |pos| {
+    (Combat { hp: 120,
+              is_hostile: false,
+              ..default() },
+     Interact::SingleOption(InteractSingleOption::Describe),
+     name("space pirate base"),
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SPACEPIRATEBASE)))
+  },
+  SPACE_STATION => |pos| {
+    (Combat { hp: 120,
+              is_hostile: false,
+              ..default() },
+     Interact::SingleOption(InteractSingleOption::Describe),
+     name("space station"),
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SPACESTATION)))
+  },
+  TRADER => |pos| {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "Trader",
+               NORMAL_NPC_THRUST,
+               Faction::Traders,
+               30,
+               MySprite::SPACESHIPWHITE2)
+  },
+  SPACE_COP => |pos| {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "space cop",
+               NORMAL_NPC_THRUST,
+               Faction::SpacePolice,
+               70,
+               MySprite::SPACESHIPBLUE)
+  },
+  SPACE_WIZARD => |pos| {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "space wizard",
+               NORMAL_NPC_THRUST,
+               Faction::SPACEWIZARDs,
+               40,
+               MySprite::WIZARDSPACESHIP)
+  },
+  NOMAD => |pos| {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "nomad",
+               NORMAL_NPC_THRUST,
+               Faction::Wanderers,
+               35,
+               MySprite::SPACESHIPGREEN)
+  },
+  ALIEN_SOLDIER => |pos| {
+    (IsHostile(true),
+     scaled_enemy(pos,
+                  NORMAL_NPC_SCALE,
+                  "alien soldier",
+                  NORMAL_NPC_THRUST,
+                  Faction::Invaders,
+                  80,
+                  MySprite::PURPLEENEMYSHIP))
+  },
+  ENEMY => |pos| {
+    (Enemy,
+     Combat::default(),
+     scaled_enemy(pos,
+                  NORMAL_NPC_SCALE,
+                  "enemy",
+                  NORMAL_NPC_THRUST,
+                  Faction::default(),
+                  50,
+                  MySprite::PURPLEENEMYSHIP))
+  },
+  NPC => |pos| {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "npc",
+               NORMAL_NPC_THRUST,
+               Faction::default(),
+               50,
+               MySprite::SPACESHIPWHITE2)
+  },
+  MUSHROOM_MAN => |pos| {
+    (PlayerFollower,
+     scaled_npc(pos,
+                NORMAL_NPC_SCALE,
+                "mushroom man",
+                NORMAL_NPC_THRUST,
+                Faction::Traders,
+                40,
+                MySprite::MUSHROOMMAN))
+  },
+  SPACE_COWBOY => |pos| {
+    talking_person_in_space(pos,
+                            MySprite::SPACECOWBOY,
+                            "space cowboy",
+                            SPACE_COWBOY_DIALOGUE)
+  },
+  // SIGN => |pos| {
+  //   (Interact::SingleOption(InteractSingleOption::Describe),
+  //    SpaceObjectBundle::new(pos,
+  //                           1.5,
+  //                           false,
+  //                           Visuals::sprite(MySprite::SIGN).with_text(String::new())))
+  // },
+  WORMHOLE => |pos| {
+    (Interact::SingleOption(InteractSingleOption::Describe),
+     name("wormhole"),
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WORMHOLE)))
+  },
+  ASTEROID => |pos| {
+    (Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame{resources_left:5,tool_durability:5}),
+     CanBeFollowedByNPC,
+     SpaceObjectBundle::new(pos,
+                            asteroid_scale(),
+                            false,
+                            Visuals::sprite(MySprite::ASTEROID)))
+  },
+  SPACE_CAT => |pos| {
+    (Name::new("space cat"),
+     Interact::SingleOption(InteractSingleOption::Item(Item::SPACECAT)),
+     SpaceObjectBundle::new(pos, 1.3, true, Visuals::sprite(MySprite::SPACECAT)))
+  },
+  SPACEMAN => |pos| {
+    (Name::new("spaceman"),
+     Interact::SingleOption(InteractSingleOption::Item(Item::Person)),
+     SpaceObjectBundle::new(pos, 1.3, true, Visuals::sprite(MySprite::SPACEMAN)))
+  },
+  SPACE_COIN => |pos| {
+    (Name::new("space coin"),
+     Interact::SingleOption(InteractSingleOption::Item(Item::SpaceCOIN)),
+     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::COIN)))
+  },
+  ICE_ASTEROID => |pos| {
+    (Name::new("ice"),
+     Interact::SingleOption(InteractSingleOption::Item(Item::DiHydrogenMonoxide)),
+     SpaceObjectBundle::new(pos, asteroid_scale(), true, Visuals::sprite(MySprite::ICEASTEROID)))
+  },
+  CRYSTAL_ASTEROID => |pos| {
+    (Name::new("crystal asteroid"),
+     Interact::SingleOption(InteractSingleOption::Item(Item::Crystal)),
+     SpaceObjectBundle::new(pos, asteroid_scale(), true, Visuals::sprite(MySprite::CRYSTALASTEROID)))
+  },
+  CRYSTAL_MONSTER => |pos| {
+    (name("crystal monster"),
+     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)))
+  },
+  CRYSTAL_MONSTER_2 => |pos| {
+    (name("crystal monster"),
+     Interact::SingleOption(InteractSingleOption::Describe),
+     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)))
+  },
+  HP_BOX => |pos| {
+    (name("hp box"),
+     Interact::SingleOption(InteractSingleOption::HPBOX),
+     SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBOX)))
+  },
+  TREASURE_CONTAINER => |pos| {
+    (name("container"),
+     Interact::SingleOption(InteractSingleOption::CONTAINER(vec![(Item::SpaceCOIN, 4), (Item::COFFEE, 1)])),
+     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CONTAINER)))
+  },
+  SPHERICAL_COW => |pos| {
+    (name("spherical cow"),
+     Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),
+     // Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(SPHERICAL_SPACE_COW)),
+     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SPHERICALCOW)))
+  },
+  // ZORP => |pos| {
+  //   (name("zorp"),
+  //    Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(ZORP)),
+  //    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::ZORP)))
+  // },
+  TRADE_STATION => |pos| {
+    let (trade, text) = if prob(0.5) {
+      let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SPACECAT]).unwrap();
+      (Interact::SingleOption(InteractSingleOption::Trade { inputs: (trade_buy, 1),
+                                                            outputs: (Item::SpaceCOIN, 5) }),
+       format!("space station\nbuys {:?}", trade_buy))
+    } else {
+      let trade_sell = pick([Item::Spice, Item::COFFEE, Item::Rock]).unwrap();
+      (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCOIN, 5),
+                                                            outputs: (trade_sell, 1) }),
+       format!("space station\nsells {:?}", trade_sell))
+    };
+    (name("space station"),
+     CanBeFollowedByNPC,
+     trade,
+     SpaceObjectBundle::new(pos,
+                            3.0,
+                            false,
+                            Visuals::sprite(MySprite::SPACESTATION).with_text(text)))
+  },
+  FLOATING_ISLAND => |pos| {
+    (name("floating island"),
+     Interact::SingleOption(InteractSingleOption::Describe),
+     SpaceObjectBundle::new(pos, 3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)))
+  },
+  ABANDONED_SHIP => |pos| {
+    (name("abandoned ship"),
+     Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),
+     SpaceObjectBundle::new(pos,
+                            2.0,
+                            false,
+                            Visuals::sprite(MySprite::SPACESHIPABANDONED)))
+  },
+}
+
+pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
+
+// #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq, Debug)]
+// #[func(pub fn probs(&self) -> Spawnable)]
+// pub enum ZoneType {
+//   #[assoc(probs = Spawnable::SPACE_PIRATE_ASTEROID_FIELD)]
+//   SpacePirateASTEROIDField,
+//   #[assoc(probs = Spawnable::INVADERS)]
+//   InvaderAttack,
+//   #[assoc(probs = Spawnable::TRADING_ZONE)]
+//   TradingZone,
+
+//   #[assoc(probs = Spawnable::NORMAL_ASTEROID_FIELD)]
+//   ASTEROIDField,
+//   #[assoc(probs = Spawnable::NON_COMBAT_ICE_ASTEROID_FIELD)]
+//   ICEASTEROIDField,
+//   #[assoc(probs = Spawnable::PIRATE_ICE_ASTEROID_FIELD)]
+//   PirateICEASTEROIDField,
+//   #[assoc(probs = Spawnable::SPACE_STATION_ZONE_PROBS)]
+//   SPACESTATIONZone // #[assoc(probs = Spawnable::ANOMALY_CLUSTER_PROBS)]
+//                    // AnomalyCluster,
+//                    // #[assoc(probs = Spawnable::EXOTIC_LIFE_ZONE_PROBS)]
+//                    // ExoticLifeZone,
+//                    // #[assoc(probs = Spawnable::MINEFIELD_ZONE_PROBS)]
+//                    // MinefieldZone
+// }
+#[derive(Component)]
+struct Pos(pub IVec3);
+
 #[derive(Component)]
 struct OriginTime(u32);
 fn origin_time(q: Query<Entity, Without<OriginTime>>,
@@ -805,69 +1211,6 @@ enum GameState {
 }
 #[derive(Resource, Default)]
 struct GameOver(bool);
-fn proximity_system(mut c: Commands,
-                    mut player_query: Query<(Entity,
-                           &mut Player,
-                           &Transform,
-                           &mut LockedAxes)>,
-                    proximal_entities: Query<(Entity, &Transform, &Proximal),
-                          Without<Player>>,
-                    monsterq: Query<(Entity, &Monster)>,
-                    noteq: Query<(Entity, &Note)>,
-                    mut game_over: ResMut<GameOver>,
-                    time: Res<TimeTicks>,
-                    mut uidata: ResMut<UIData>,
-                    flashlightq: Query<Entity, With<PlayerFlashlight>>,
-                    playerambientlightq: Query<Entity, With<PlayerAmbientlight>>,
-                    mut prev_proximal_entities: Local<HashSet<Entity>>) {
-  if let Ok((player_entity, mut player, player_transform, mut player_lockedaxes)) =
-    player_query.get_single_mut()
-  {
-    // uidata.note = default();
-    let player_pos = player_transform.translation;
-    let current_proximal_entities: HashSet<Entity> =
-      filter_map(|(e, &Transform { translation, .. }, &Proximal { distance })| {
-                   (translation.distance(player_pos) < distance).then_some(e)
-                 },
-                 &proximal_entities).collect();
-    let new_proximal_entities =
-      HashSet::difference(&current_proximal_entities, &prev_proximal_entities);
-    let is_note = |e| noteq.get(e).is_ok();
-    let is_monster = |e| monsterq.get(e).is_ok();
-    uidata.note = find_map(|&e| {
-                             noteq.get(e)
-                                  .map(|(_, &Note(text))| vec![text.to_string()])
-                                  .ok()
-                           },
-                           &current_proximal_entities).unwrap_or_default();
-    for &e in new_proximal_entities {
-      println("new proximal entity");
-      if is_monster(e) {
-        game_over.0 = true;
-        uidata.game_over = true;
-        // monster got player
-        c.entity(player_entity)
-         .remove::<LockedAxes>()
-         .remove::<FaceCamera>();
-
-        for e in &playerambientlightq {
-          c.entity(e).remove_parent_in_place();
-        }
-        for e in &flashlightq {
-          c.entity(e).remove_parent_in_place();
-        }
-        println("monster got player");
-      }
-      if is_note(e) {
-        // found note
-        println("found note");
-        // let note = NOTES[player.notes_found];
-        player.notes_found.insert(e);
-      }
-    }
-    *prev_proximal_entities = current_proximal_entities;
-  }
-}
 
 const TILE_SIZE: f32 = 1.0;
 const CHARACTER_HEIGHT: f32 = TILE_SIZE;
@@ -932,117 +1275,9 @@ impl CharacterBundle {
   }
 }
 
-pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
-
 fn rangerand(lo: f32, hi: f32) -> f32 { lo.lerp(hi, rand::random::<f32>()) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 
-const NOTES:&[&'static str] = &[
-  "WIN",
-  "Diary entry 11\n they got me. I'm turning into a tree. it's over",
-  "Diary entry 10\n oh my god the trees are chasing me!",
-  "Diary entry 9\n I think I saw a tree move. I must be seeing things",
-  "Diary entry 8\n Where could they have gone?",
-  "Diary entry 7\n Now I can't find Sallie. Damn",
-  "Diary entry 6\n Now Sallie is also looking for Billy",
-  "Diary entry 5\n I haven't been able to find Sallie",
-  "Diary entry 4\n I've been looking for Billy. I heard more strange sounds. Don't see any bears.",
-  "Diary entry 3\n can't find Billy. where could he be?",
-  "Diary entry 1\n me and Billy and Sallie are camping in this forest.",
-  "Diary entry 2\n I heard some strange sounds. could be a bear.\n yikes.",
-  "Diary entry 7\n",
-  "Diary entry 8\n",
-  "Diary entry 9\n",
-  "Diary entry 10\n",
-  "Diary entry 11\n",
-  "Diary entry 12\n",
-  "Diary entry 13\n",
-  "Diary entry 14\n",
-  "Diary entry 15\n",
-  "Diary entry 16\n",
-  "Diary entry 17\n",
-  "Diary entry 18\n",
-  "Diary entry 19\n",
-];
-const WORLD_MAP: &[&'static str] =
-  &["                                  ttttttt                                       ",
-    "                                  t  l  t                                       ",
-    "                                  t     t                                       ",
-    "                                  t     t                                       ",
-    "                                  t lnl t                                       ",
-    "                                  t     t                                       ",
-    "                                  ttttttt                                       ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "                                                                                ",
-    "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
-    "w         g                                  t      t                  g       w",
-    "w         t t                                                                  w",
-    "w     wwwww wwwwwwww                    t       t         t          t     t   w",
-    "w     wt  tlt  tw                                 l                  tP        w",
-    "w     w         w                      g     t    n             t    t         w",
-    "w     w         w            t                                       t         w",
-    "w     w  w   w  w                       t                                      w",
-    "w     wttw   wttw                    l           g                             w",
-    "w                                    n          t                              w",
-    "w                                                                              w",
-    "w              t        t                 t                     g              w",
-    "w                                  t                                   t       w",
-    "w  l                                                                   t       w",
-    "w  n      t                                                            t       w",
-    "w                                  t                                   t       w",
-    "w                                         t     nl    t      t                 w",
-    "w         t             t           g                                          w",
-    "w                                  t    t                         nl           w",
-    "w                                                                              w",
-    "w                                                            t                 w",
-    "w       t                                                           t          w",
-    "w                                                                              w",
-    "wggg                           t                                               w",
-    "w                                                t                             w",
-    "w      t                                                                       w",
-    "wttttttt        t         t                                         t          w",
-    "w  l                      t                                              nl    w",
-    "w                                       t              t                       w",
-    "w                              t         Tl                                    w",
-    "w                     l                   n                         t          w",
-    "w  tt                 n                                                        w",
-    "w          t      t       t           Tl     Tl          nl   g                w",
-    "w    t            g                   t                                        w",
-    "w         t    t  t      ttt                    t                 t            w",
-    "w                        tg                                                    w",
-    "w                                                                              w",
-    "w   t      t   t  g                                                            w",
-    "w                                     t                                        w",
-    "w                 t       t                                                    w",
-    "w       l  t                                    t           t                  w",
-    "w       n                                                                      w",
-    "w          t      tw                      t                            t       w",
-    "w                                                                              w",
-    "w   ttt                               t                                        w",
-    "w          ttt            t                                                    w",
-    "wwwwwww p w                     t             t             t          t       w",
-    "wwwwwww   w t  t tt                               nl                           w",
-    "wwwwwww c w                                                                    w",
-    "wwwwwww   w                      t             t          t           t        w",
-    "w         w  tt   t t                                                          w",
-    "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww"];
-// const WIN_MAP: &[&'static str] = &["ttttttttt",
-//                                    "t       t",
-//                                    "t  l    t",
-//                                    "t       t",
-//                                    "t       t",
-//                                    "t       t",
-//                                    "t l wl  t",
-//                                    "t       t",
-//                                    "ttttttttt"];
 const NOTE_FIND_RANGE: f32 = 1.8;
 fn note(translation: Vec3, note_data: &'static str) -> impl Bundle {
   (Visuals::sprite(MySprite::NOTE),
@@ -1094,62 +1329,6 @@ fn portal(pos: Vec3) -> impl Bundle {
                       point_light: TORCH_LIGHT,
                       ..default() })
 }
-// fn ghost(pos: Vec3) -> impl Bundle {
-//   (Monster { is_dormant: true },
-//    name("ghost"),
-//    Navigation::new(PLAYER_MAX_SPEED),
-//    CharacterBundle::new(pos, true, Visuals::sprite(MySprite::SPACEWIZARD)))
-// }
-// fn monster(pos: Vec3) -> impl Bundle {
-//   (Monster { is_dormant: true },
-//    Proximal { distance: MONSTER_CATCH_RANGE },
-//    name("monster"),
-//    Navigation::new(MONSTER_MAX_SPEED),
-//    CharacterBundle::new(pos, true, Visuals::sprite(MySprite::SPACEWIZARD)))
-// }
-// fn treemonster(pos: Vec3) -> impl Bundle {
-//   (Monster { is_dormant: true },
-//    name("tree monster"),
-//    Proximal { distance: MONSTER_CATCH_RANGE },
-//    Navigation::new(MONSTER_MAX_SPEED),
-//    CharacterBundle::new(pos, true, Visuals::sprite(MySprite::TREEMONSTER)))
-// }
-// fn tree(pos: Vec3) -> impl Bundle {
-//   (name("ghost"), CharacterBundle::new(pos, false, Visuals::sprite(MySprite::TREE)))
-// }
-// fn tent(pos: Vec3) -> impl Bundle {
-//   (name("tent"),
-//    Note("It's a tent"),
-//    Proximal { distance: NOTE_FIND_RANGE },
-//    CharacterBundle::new(pos, false, Visuals::sprite(MySprite::TENT)))
-// }
-// fn car(pos: Vec3) -> impl Bundle {
-//   (Visuals::unlit_sprite(MySprite::CAR),
-//    Note("You thought it'd be fun to drive through this forest but your car ran out of gas"),
-//    Proximal { distance: NOTE_FIND_RANGE },
-//    FaceCamera,
-//    PointLightBundle { transform: Transform::from_translation(pos),
-//                       point_light: TORCH_LIGHT,
-//                       ..default() })
-// }
-// fn wall(pos: Vec3) -> impl Bundle {}
-
-// fn player(translation: Vec3) -> impl Bundle {
-//   (Player::default(),
-//    name("You"),
-//    Navigation::new(PLAYER_MAX_SPEED),
-//    CharacterBundle::new(translation, true, Visuals::sprite(MySprite::PLAYER)))
-// }
-
-// fn reset(mut world: &mut World) {
-//   let mut gameover = world.resource_mut::<GameOver>();
-//   if gameover.0 {
-//     gameover.0 = false;
-
-//     // world.clear_entities();
-//     // bevy::ecs::system::RunSystemOnce::run_system_once(world, setup);
-//   }
-// }
 // fn init(mut world: &mut World) { world.clear_entities() }
 type NumberFunction = fn(i32) -> i32;
 
@@ -1162,137 +1341,6 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
              mut c: Commands) {
-  let cube_collider = Cuboid::default().collider();
-  let ground_mesh =
-    bevy::math::primitives::Plane3d::new(Vec3::Y, Vec2::new(40.0, 25.5)).mesh()
-                                                                        .build();
-  // let ground_mesh =
-  //   bevy::math::primitives::Plane3d::new(Vec3::Y, Vec2::new(100.0, 100.0)).mesh()
-  //                                                                         .build();
-  let ground_collider = avian3d::prelude::Collider::trimesh_from_mesh(&ground_mesh).unwrap();
-  let ground_texture = serv.load("embedded://ground.png");
-  let ground_material = serv.add(StandardMaterial { perceptual_roughness: 0.8,
-                                                    metallic: 0.0,
-                                                    reflectance: 0.2,
-                                                    base_color_texture:
-                                                      Some(ground_texture),
-                                                    ..default() });
-  let ground = (ground_collider,
-                RigidBody::Static,
-                PbrBundle { mesh: serv.add(ground_mesh),
-                            material: ground_material.clone(),
-                            transform: Transform::from_xyz(39.5, 0.0, 42.5),
-                            ..default() });
-  c.spawn(ground);
-  let small_ground_mesh =
-    bevy::math::primitives::Plane3d::new(Vec3::Y, Vec2::new(3.5, 3.5)).mesh()
-                                                                      .build();
-  let small_ground_collider =
-    avian3d::prelude::Collider::trimesh_from_mesh(&small_ground_mesh).unwrap();
-  let small_ground = (small_ground_collider,
-                      RigidBody::Static,
-                      PbrBundle { mesh: serv.add(small_ground_mesh),
-                                  material: ground_material.clone(),
-                                  transform: Transform::from_xyz(37.0, 0.0, 3.0),
-                                  ..default() });
-  c.spawn(small_ground);
-  let cube_mesh = Cuboid::default().mesh().build();
-  let cube_collider = Collider::convex_hull_from_mesh(&cube_mesh).unwrap();
-  let cube_mesh_handle = serv.add(cube_mesh);
-  let position = Vec3::new(0.0, 4.0, 0.0);
-  let mut num_notes_spawned = 0;
-
-  for (x, y, tile) in enumerate(WORLD_MAP).flat_map(move |(y, line)| {
-                                            line.char_indices()
-                                                .map(move |(x, tile)| (x, y, tile))
-                                          })
-  {
-    let pos = vec3(x as f32 * TILE_SIZE,
-                   CHARACTER_HEIGHT * 0.5,
-                   y as f32 * TILE_SIZE);
-
-    match tile {
-      'w' => {
-        c.spawn((RigidBody::Static,
-                 cube_collider.clone(),
-                 PbrBundle { mesh: cube_mesh_handle.clone(),
-                             material: ground_material.clone(),
-                             transform: Transform::from_translation(pos),
-                             ..default() }));
-      }
-      'l' => {
-        c.spawn(torch(pos));
-      }
-      'c' => {
-        c.spawn(car(pos));
-      }
-      't' => {
-        c.spawn(tree(pos));
-      }
-      'T' => {
-        c.spawn(tent(pos));
-      }
-      'n' => {
-        c.spawn(note(pos - Vec3::Y * 0.47,
-                     NOTES.get(num_notes_spawned).unwrap_or(&"unwritten note")));
-        num_notes_spawned += 1;
-      }
-      'g' => {
-        c.spawn(treemonster(pos));
-      }
-      'P' => {
-        c.spawn(portal(pos));
-      }
-      'p' => {
-        let player_entity = c.spawn(player(pos)).id();
-        c.spawn((PlayerFlashlight,
-                 SpotLightBundle { spot_light: PLAYER_LIGHT_FLASHLIGHT,
-
-                                   transform: Transform::from_xyz(0.0, 2.0, 2.3),
-                                   visibility: Visibility::Hidden,
-                                   ..default() }))
-         .set_parent(player_entity);
-        let mut num_ambient_lights = 0;
-        let mut spawn_ambient_light = || {
-          c.spawn((PlayerAmbientlight,
-                   PointLightBundle { point_light: PLAYER_LIGHT_AMBIENT,
-                                      transform: Transform::from_xyz(0.0,
-                                                                     1.7,
-                                                                     num_ambient_lights
-                                                                     as f32
-                                                                     * 2.0
-                                                                     + 0.3),
-                                      ..default() }))
-           .set_parent(player_entity);
-          num_ambient_lights += 1;
-        };
-
-        spawn_ambient_light();
-        spawn_ambient_light();
-        spawn_ambient_light();
-        // spawn_ambient_light();
-        // spawn_ambient_light();
-      }
-      _ => {}
-    }
-  }
-
-  // c.spawn((SpatialBundle::default(),
-  //          TerrainConfig::load_from_file("assets/default_terrain/terrain_config.ron"),
-  //          TerrainData::new()));
-
-  // c.spawn(PbrBundle {
-  //   mesh: meshes.add(Circle::new(4.0)),
-  //   material: materials.add(Color::WHITE),
-  //   transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-  //   ..default()
-  // });
-  // let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
-  // c.spawn(PointLightBundle { point_light: PointLight { shadows_enabled: true,
-  //                                                      ..default() },
-  //                            transform: Transform::from_xyz(4.0, 8.0, 4.0),
-  //                            ..default() });
-
   let fov = std::f32::consts::PI / 4.0;
 
   let pitch_upper_limit_radians = 1.0;
@@ -1304,9 +1352,12 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
      //          brightness: 600.0 },
      Camera2d,
      // FOG_SETTINGS,
+     VoxelWorldCamera::<MyMainWorld>::default(),
      Camera3dBundle { camera: Camera { hdr: true,
 
                                        ..default() },
+                      transform:
+                        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
 
                       tonemapping: TONEMAPPING,
                       projection:
@@ -1350,171 +1401,119 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
                       // force_update: todo!(),
                       ..default() });
   c.spawn(camera);
+  // light
+  c.spawn(PointLightBundle { point_light: PointLight { shadows_enabled: true,
+                                                       ..default() },
+                             transform: Transform::from_xyz(4.0, 8.0, 4.0),
+                             ..default() });
+  c.spawn(PointLightBundle { transform: Transform::from_translation(Vec3::new(25.0,
+                                                                              25.0,
+                                                                              25.0)),
+                             point_light: PointLight { range: 200.0,
+                                                       intensity: 8000.0,
+                                                       ..Default::default() },
+                             ..Default::default() });
+  let cube_collider = Cuboid::default().collider();
+  let ground_mesh =
+    bevy::math::primitives::Plane3d::new(Vec3::Y, Vec2::new(40.0, 25.5)).mesh()
+                                                                        .build();
+  // let ground_mesh =
+  //   bevy::math::primitives::Plane3d::new(Vec3::Y, Vec2::new(100.0, 100.0)).mesh()
+  //                                                                         .build();
+  let ground_collider = avian3d::prelude::Collider::trimesh_from_mesh(&ground_mesh).unwrap();
+  let ground_texture = serv.load("embedded://ground.png");
+  let ground_material = serv.add(StandardMaterial { perceptual_roughness: 0.8,
+                                                    metallic: 0.0,
+                                                    reflectance: 0.2,
+                                                    base_color_texture:
+                                                      Some(ground_texture),
+                                                    ..default() });
+  let ground = (ground_collider,
+                RigidBody::Static,
+                PbrBundle { mesh: serv.add(ground_mesh),
+                            material: ground_material.clone(),
+                            transform: Transform::from_xyz(39.5, 0.0, 42.5),
+                            ..default() });
+  c.spawn(ground);
+  let small_ground_mesh =
+    bevy::math::primitives::Plane3d::new(Vec3::Y, Vec2::new(3.5, 3.5)).mesh()
+                                                                      .build();
+  let small_ground_collider =
+    avian3d::prelude::Collider::trimesh_from_mesh(&small_ground_mesh).unwrap();
+  let small_ground = (small_ground_collider,
+                      RigidBody::Static,
+                      PbrBundle { mesh: serv.add(small_ground_mesh),
+                                  material: ground_material.clone(),
+                                  transform: Transform::from_xyz(37.0, 0.0, 3.0),
+                                  ..default() });
+  c.spawn(small_ground);
+  let cube_mesh = Cuboid::default().mesh().build();
+  let cube_collider = Collider::convex_hull_from_mesh(&cube_mesh).unwrap();
+  let cube_mesh_handle = serv.add(cube_mesh);
+  let position = Vec3::new(0.0, 4.0, 0.0);
+
+  // c.spawn((SpatialBundle::default(),
+  //          TerrainConfig::load_from_file("assets/default_terrain/terrain_config.ron"),
+  //          TerrainData::new()));
+
+  // c.spawn(PbrBundle {
+  //   mesh: meshes.add(Circle::new(4.0)),
+  //   material: materials.add(Color::WHITE),
+  //   transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+  //   ..default()
+  // });
+  // let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
+  // c.spawn(PointLightBundle { point_light: PointLight { shadows_enabled: true,
+  //                                                      ..default() },
+  //                            transform: Transform::from_xyz(4.0, 8.0, 4.0),
+  //                            ..default() });
+
   println("setup");
 }
 
-use fast_surface_nets::{glam::{Vec2, Vec3A},
-                        ndshape::{ConstShape, ConstShape3u32},
-                        surface_nets, SurfaceNetsBuffer};
+// Declare materials as consts for convenience
+const SNOWY_BRICK: u8 = 0;
+const FULL_BRICK: u8 = 1;
+const GRASS: u8 = 2;
 
-use {bevy::{pbr::wireframe::{WireframeConfig, WireframePlugin},
-            prelude::*,
-            render::{mesh::{Indices, VertexAttributeValues},
-                     render_resource::{PrimitiveTopology, WgpuFeatures},
-                     settings::WgpuSettings}},
-     obj_exporter::{export_to_file, Geometry, ObjSet, Object, Primitive, Shape, Vertex}};
+#[derive(Resource, Clone, Default)]
+struct MyMainWorld;
 
-fn main() {
-  App::new().add_plugins(DefaultPlugins)
-            .add_plugin(WireframePlugin)
-            .add_startup_system(setup)
-            .run();
-}
-
-fn setup(mut c: Commands,
-         mut wireframe_config: ResMut<WireframeConfig>,
-         mut materials: ResMut<Assets<StandardMaterial>>,
-         mut meshes: ResMut<Assets<Mesh>>) {
-  wireframe_config.global = true;
-
-  c.spawn_bundle(PointLightBundle { transform:
-                                      Transform::from_translation(Vec3::new(25.0, 25.0,
-                                                                            25.0)),
-                                    point_light: PointLight { range: 200.0,
-                                                              intensity: 8000.0,
-                                                              ..Default::default() },
-                                    ..Default::default() });
-  c.spawn(Camera3dBundle::default())
-   .insert(bevy_debug_camera::DebugCamera { position: Vec3::new(-5., 1., 0.),
-                                            ..default() });
-  // c.spawn_bundle(PerspectiveCameraBundle {
-  //       transform: Transform::from_translation(Vec3::new(50.0, 15.0, 50.0))
-  //           .looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
-  //       ..Default::default()
-  //   });
-
-  let (sphere_buffer, sphere_mesh) = sdf_to_mesh(&mut meshes, |p| sphere(0.9, p));
-  let (cube_buffer, cube_mesh) = sdf_to_mesh(&mut meshes, |p| cube(Vec3A::splat(0.5), p));
-  let (link_buffer, link_mesh) = sdf_to_mesh(&mut meshes, |p| link(0.26, 0.4, 0.18, p));
-
-  spawn_pbr(&mut c,
-            &mut materials,
-            sphere_mesh,
-            Transform::from_translation(Vec3::new(-16.0, -16.0, -16.0)));
-  spawn_pbr(&mut c,
-            &mut materials,
-            cube_mesh,
-            Transform::from_translation(Vec3::new(-16.0, -16.0, 16.0)));
-  spawn_pbr(&mut c,
-            &mut materials,
-            link_mesh,
-            Transform::from_translation(Vec3::new(16.0, -16.0, -16.0)));
-
-  write_mesh_to_obj_file("sphere".into(), &sphere_buffer);
-  write_mesh_to_obj_file("cube".into(), &cube_buffer);
-  write_mesh_to_obj_file("link".into(), &link_buffer);
-}
-
-fn sdf_to_mesh(meshes: &mut Assets<Mesh>,
-               sdf: impl Fn(Vec3A) -> f32)
-               -> (SurfaceNetsBuffer, Handle<Mesh>) {
-  type SampleShape = ConstShape3u32<34, 34, 34>;
-
-  let mut samples = [1.0; SampleShape::SIZE as usize];
-  for i in 0u32..(SampleShape::SIZE) {
-    let p = into_domain(32, SampleShape::delinearize(i));
-    samples[i as usize] = sdf(p);
+impl VoxelWorldConfig for MyMainWorld {
+  fn texture_index_mapper(&self) -> Arc<dyn Fn(u8) -> [u32; 3] + Send + Sync> {
+    Arc::new(|vox_mat: u8| match vox_mat {
+      SNOWY_BRICK => [0, 1, 2],
+      FULL_BRICK => [2, 2, 2],
+      GRASS | _ => [3, 3, 3]
+    })
   }
 
-  let mut buffer = SurfaceNetsBuffer::default();
-  surface_nets(&samples, &SampleShape {}, [0; 3], [33; 3], &mut buffer);
-
-  let num_vertices = buffer.positions.len();
-
-  let mut render_mesh =
-    Mesh::new(PrimitiveTopology::TriangleList,
-              bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD);
-  render_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION,
-                               VertexAttributeValues::Float32x3(buffer.positions.clone()));
-  render_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL,
-                               VertexAttributeValues::Float32x3(buffer.normals.clone()));
-  render_mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0,
-                               VertexAttributeValues::Float32x2(vec![
-                                 [0.0; 2];
-                                 num_vertices
-                               ]));
-  render_mesh.set_indices(Some(Indices::U32(buffer.indices.clone())));
-
-  (buffer, meshes.add(render_mesh))
+  fn voxel_texture(&self) -> Option<(String, u32)> {
+    Some(("example_voxel_texture.png".into(), 4))
+  }
 }
 
-fn spawn_pbr(commands: &mut Commands,
-             materials: &mut Assets<StandardMaterial>,
-             mesh: Handle<Mesh>,
-             transform: Transform) {
-  let mut material = StandardMaterial::from(Color::rgb(0.0, 0.0, 0.0));
-  material.perceptual_roughness = 0.9;
+fn create_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>) {
+  // Then we can use the `u8` consts to specify the type of voxel
 
-  commands.spawn_bundle(PbrBundle { mesh,
-                                    material: materials.add(material),
-                                    transform,
-                                    ..Default::default() });
-}
+  // 20 by 20 floor
+  for x in -10..10 {
+    for z in -10..10 {
+      voxel_world.set_voxel(IVec3::new(x, -1, z), WorldVoxel::Solid(GRASS));
+      // Grassy floor
+    }
+  }
 
-fn write_mesh_to_obj_file(name: String, buffer: &SurfaceNetsBuffer) {
-  let filename = format!("{}.obj", name);
-  export_to_file(&ObjSet { material_library: None,
-                           objects: vec![Object { name,
-                                                  vertices: buffer.positions
-                                                                  .iter()
-                                                                  .map(|&[x, y, z]| {
-                                                                    Vertex { x: x as f64,
-                                                                             y: y as f64,
-                                                                             z: z as f64 }
-                                                                  })
-                                                                  .collect(),
-                                                  normals: buffer.normals
-                                                                 .iter()
-                                                                 .map(|&[x, y, z]| {
-                                                                   Vertex { x: x as f64,
-                                                                            y: y as f64,
-                                                                            z: z as f64 }
-                                                                 })
-                                                                 .collect(),
-                                                  geometry: vec![Geometry {
-                    material_name: None,
-                    shapes: buffer
-                        .indices
-                        .chunks(3)
-                        .map(|tri| Shape {
-                            primitive: Primitive::Triangle(
-                                (tri[0] as usize, None, Some(tri[0] as usize)),
-                                (tri[1] as usize, None, Some(tri[1] as usize)),
-                                (tri[2] as usize, None, Some(tri[2] as usize)),
-                            ),
-                            groups: vec![],
-                            smoothing_groups: vec![],
-                        })
-                        .collect(),
-                }],
-                                                  tex_vertices: vec![] }] },
-                 filename).unwrap();
-}
-
-fn into_domain(array_dim: u32, [x, y, z]: [u32; 3]) -> Vec3A {
-  (2.0 / array_dim as f32) * Vec3A::new(x as f32, y as f32, z as f32) - 1.0
-}
-
-fn sphere(radius: f32, p: Vec3A) -> f32 { p.length() - radius }
-
-fn cube(b: Vec3A, p: Vec3A) -> f32 {
-  let q = p.abs() - b;
-  q.max(Vec3A::ZERO).length() + q.max_element().min(0.0)
-}
-
-fn link(le: f32, r1: f32, r2: f32, p: Vec3A) -> f32 {
-  let q = Vec3A::new(p.x, (p.y.abs() - le).max(0.0), p.z);
-  Vec2::new(q.length() - r1, q.z).length() - r2
+  // Some bricks
+  voxel_world.set_voxel(IVec3::new(0, 0, 0), WorldVoxel::Solid(SNOWY_BRICK));
+  voxel_world.set_voxel(IVec3::new(1, 0, 0), WorldVoxel::Solid(SNOWY_BRICK));
+  voxel_world.set_voxel(IVec3::new(0, 0, 1), WorldVoxel::Solid(SNOWY_BRICK));
+  voxel_world.set_voxel(IVec3::new(0, 0, -1), WorldVoxel::Solid(SNOWY_BRICK));
+  voxel_world.set_voxel(IVec3::new(-1, 0, 0), WorldVoxel::Solid(FULL_BRICK));
+  voxel_world.set_voxel(IVec3::new(-2, 0, 0), WorldVoxel::Solid(FULL_BRICK));
+  voxel_world.set_voxel(IVec3::new(-1, 1, 0), WorldVoxel::Solid(SNOWY_BRICK));
+  voxel_world.set_voxel(IVec3::new(-2, 1, 0), WorldVoxel::Solid(SNOWY_BRICK));
+  voxel_world.set_voxel(IVec3::new(0, 1, 0), WorldVoxel::Solid(SNOWY_BRICK));
 }
 
 #[bevy_main]
@@ -1547,15 +1546,15 @@ pub fn main() {
       EmbeddedAssetPlugin::default(),
       // bevy::pbr::ScreenSpaceAmbientOcclusionPlugin
       DefaultPlugins
-      .set(bevy::render::RenderPlugin {
+      // .set(bevy::render::RenderPlugin {
 
-        render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
-          features: WgpuFeatures::POLYGON_MODE_LINE,
-          backends: Some(bevy::render::settings::Backends::DX12),
-          ..default()
-        }),
-        ..default()
-      })
+      //   render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
+      //     features: bevy::render::settings::WgpuFeatures::POLYGON_MODE_LINE,
+      //     backends: Some(bevy::render::settings::Backends::DX12),
+      //     ..default()
+      //   }),
+      //   ..default()
+      // })
         .set(ImagePlugin{default_sampler})
         .set(WindowPlugin {
           primary_window: Some(Window {
@@ -1572,10 +1571,10 @@ pub fn main() {
           ..default()
         }),
 
+      VoxelWorldPlugin::with_config(MyMainWorld),
       // bevy_vox_scene::VoxScenePlugin,
       bevy_sprite3d::Sprite3dPlugin,
-
-      bevy_debug_camera::DebugCameraPlugin::default(),
+      // bevy_debug_camera::DebugCameraPlugin::default(),
       bevy_panorbit_camera::PanOrbitCameraPlugin,
       bevy_mod_billboard::prelude::BillboardPlugin,
       // bevy_mod_picking::DefaultPickingPlugins,
@@ -1593,10 +1592,8 @@ pub fn main() {
     .insert_resource(solver_config)
     .insert_resource(ClearColor(CLEAR_COLOR))
     .insert_resource(AMBIENT_LIGHT)
-
     .insert_resource(Msaa::Sample4)
-    .add_systems(Startup, (setup// ,add_global_highlight
-                           // ,ui
+    .add_systems(Startup, (setup,create_voxel_scene
     ).chain())
     .add_systems(Update,(
       close_on_esc,
@@ -1612,7 +1609,7 @@ pub fn main() {
     .add_systems(Update,(
       portal_win,
       face_camera,
-      proximity_system,
+      // proximity_system,
       visuals,
       ui,
     ).chain())

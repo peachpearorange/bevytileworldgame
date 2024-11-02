@@ -3,7 +3,7 @@
 # cargo-features = ["per-package-target"]
 [package]
 # default-target = "wasm32-unknown-unknown"
-name = "bevyspookygame"
+name = "bevytileworldgame"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
@@ -125,6 +125,7 @@ bevy_quill_overlays = "*"
 # cached = "0.53.1"
 
 # bevy_meshem ="*"
-bevy-debug-camera = "0.3.0"
-bevy_vector_shapes = "0.8.2"
-fast-surface-nets = "0.2.0"
+bevy-debug-camera = "*"
+bevy_vector_shapes = "*"
+fast-surface-nets = "*"
+bevy_voxel_world = "*"
