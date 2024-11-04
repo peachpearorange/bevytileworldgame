@@ -105,7 +105,7 @@ bevy = { version = "0.14.1", default-features = false, features = [
 ] }
 avian3d = "*"
 bevy_embedded_assets = "*"
-# enum-assoc = "*"
+enum-assoc = "*"
 # anymap = "0.12.1"
 # by_address = "1.2.1"
 bevy_panorbit_camera = "0.19.3"
