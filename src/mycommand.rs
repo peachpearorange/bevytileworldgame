@@ -1,4 +1,40 @@
-use {crate::UIData, bevy::{ecs::world::Command, prelude::*}, rust_utils::*};
+use {crate::{Combat, Item, Player, UIData},
+     bevy::{ecs::world::Command, prelude::*},
+     rust_utils::*};
+
+pub fn insert_component<C: Component>(world: &mut World, entity: Entity, component: C) {
+  if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+    entity_mut.insert(component);
+  }
+}
+
+pub fn update_component<C: Component + Clone>(world: &mut World,
+                                              entity: Entity,
+                                              f: impl FnOnce(C) -> C) {
+  if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+    if let Some(mut component) = entity_mut.get_mut::<C>() {
+      let updated = f((*component).clone());
+      *component = updated;
+    }
+  }
+}
+
+pub fn mutate_component<C: Component>(world: &mut World,
+                                      entity: Entity,
+                                      f: impl FnOnce(&mut C)) {
+  if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+    if let Some(mut component) = entity_mut.get_mut::<C>() {
+      f(&mut component);
+    }
+  }
+}
+
+pub fn get_player(world: &mut World) -> Option<Entity> {
+  world.query_filtered::<Entity, With<Player>>()
+       .iter(world)
+       .next()
+}
+
 pub struct MyCommand(pub Box<dyn FnOnce(&mut World) + 'static + Send + Sync>);
 
 // impl From<Box<dyn FnOnce(&mut World) + 'static + Send + Sync>> for MyCommand {
@@ -32,21 +68,21 @@ impl MyCommand {
   //   }).into()
   // }
 
-  pub fn give_item_to_player(item: Item) -> Self {
-    (move |world: &mut World| {
-      if let Some(player_entity) = get_player(world) {
-        mutate_component(world, player_entity, |inventory: &mut Inventory| {
-          inventory.add_contents([(item.clone(), 1)]);
-        });
-      }
-    }).into()
-  }
+  // pub fn give_item_to_player(item: Item) -> Self {
+  //   (move |world: &mut World| {
+  //     if let Some(player_entity) = get_player(world) {
+  //       mutate_component(world, player_entity, |inventory: &mut Inventory| {
+  //         inventory.add_contents([(item.clone(), 1)]);
+  //       });
+  //     }
+  //   }).into()
+  // }
 
-  pub fn end_object_interaction_mini_game() -> Self {
-    (|_world: &mut World| {
-      // Implement mini-game ending logic here
-    }).into()
-  }
+  // pub fn end_object_interaction_mini_game() -> Self {
+  //   (|_world: &mut World| {
+  //     // Implement mini-game ending logic here
+  //   }).into()
+  // }
 
   pub fn damage_entity(entity: Entity, amount: u32) -> Self {
     (move |world: &mut World| {
@@ -56,13 +92,13 @@ impl MyCommand {
     }).into()
   }
 
-  pub fn message_add(message: impl ToString + Send + Sync + 'static) -> Self {
-    (move |world: &mut World| {
-      if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
-        ui_data.message_add(message.to_string().clone());
-      }
-    }).into()
-  }
+  // pub fn message_add(message: impl ToString + Send + Sync + 'static) -> Self {
+  //   (move |world: &mut World| {
+  //     if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
+  //       ui_data.message_add(message.to_string().clone());
+  //     }
+  //   }).into()
+  // }
 
   pub fn despawn_entity(entity: Entity) -> Self {
     (move |world: &mut World| {

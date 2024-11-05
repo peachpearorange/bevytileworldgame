@@ -9,8 +9,10 @@ const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
 
 pub struct Dialogue(&'static [DialogueTreeNode]);
 
+
 impl Dialogue {
-  pub const SPHERICAL_SPACE_COW:Self = &[
+  const fn new(tree: &'static [DialogueTreeNode]) -> Self { Self(tree) }
+  pub const SPHERICAL_SPACE_COW:Self = Self::new(&[
     ("A", &[
       ("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None),
     ]),
@@ -116,9 +118,9 @@ impl Dialogue {
       ("END", "SIGN me up for Astro-nomoo-my 101! Farewell!", "Cow: \"So long, and thanks for all the laughs! Keep reaching for the stars!\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 
-  pub const SPACE_COWBOY: Self = &[
+  pub const SPACE_COWBOY: Self = Self::new(&[
     ("A", &[
       ("B", "Howdy, partner!", "Space Cowboy: \"Well, howdy there, space traveler! Welcome to the cosmic corral!\"", None),
     ]),
@@ -158,9 +160,9 @@ impl Dialogue {
       ("END", "Space marshmallows? Now I'm hungry!", "Space Cowboy: \"Tell ya what, next time you're in the Andromeda arm, look me up. We'll have ourselves a good ol' space hoedown!\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 
-  pub const SOCRATES: Self = &[
+  pub const SOCRATES: Self = Self::new(&[
     ("A", &[
       ("B", "Greetings, Socrates! How are you finding space?", "Socrates: \"Ah, greetings, young seeker of knowledge! Space, like wisdom, is vast and full of wonder.\"", None),
     ]),
@@ -200,9 +202,9 @@ impl Dialogue {
       ("END", "Your ideas truly transcend time and space, Socrates.", "Socrates: \"As do all ideas, my friend. Now, I must float away and dialectically analyze this cosmic dust.\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 
-  pub const MARIE_CURIE: Self = &[
+  pub const MARIE_CURIE: Self = Self::new(&[
     ("A", &[
       ("B", "Madame Curie! It's an honor. How are you adapting to space?", "Marie Curie: \"Bonjour! The universe is full of natural marvels. I'm detecting fascinating radiation patterns!\"", None),
     ]),
@@ -242,9 +244,9 @@ impl Dialogue {
       ("END", "Radioactive aliens? Now that's a sci-fi concept!", "Marie Curie: \"Science often surpasses fiction! Now, help me set up this zero-gravity polonium experiment, s'il vous plaît.\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 
-  pub const ABRAHAM_LINCOLN: Self = &[
+  pub const ABRAHAM_LINCOLN: Self = Self::new(&[
     ("A", &[
       ("B", "President Lincoln! How are you finding the space age?", "Lincoln: \"Four score and seven light-years ago... I jest. This future is both terrifying and awe-inspiring.\"", None),
     ]),
@@ -284,9 +286,9 @@ impl Dialogue {
       ("END", "Your words of peace resonate even in the space age, sir.", "Lincoln: \"May they echo across the stars. Now, I must attend to pressing matters. I hear there's a vampire problem on the dark side of the moon...\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 
-  pub const CHRONOS_SPACE_WIZARD: Self = &[
+  pub const CHRONOS_SPACE_WIZARD: Self = Self::new(&[
     ("A", &[
       ("B", "Who are you, and why have you brought these historical figures to space?", "Space Wizard: \"Greetings, cosmic traveler! I am Chronos, the Space Wizard of Time and Dimension. I have assembled these great minds for a grand purpose!\"", None),
     ]),
@@ -326,8 +328,8 @@ impl Dialogue {
       ("END", "Subconscious inspiration... very clever indeed!", "Chronos: \"Thank you! Now, if you'll excuse me, I need to prevent Nikola Tesla from rewiring our ship's power grid. Again.\"", None),
     ]),
     DIALOGUE_END,
-  ];
-  pub const LEONARDO_DA_VINCI:Self  = &[
+  ]);
+  pub const LEONARDO_DA_VINCI:Self  = Self::new(&[
     ("A", &[
       ("B", "Leonardo da Vinci! How are you finding the future?", "Leonardo: \"Ah, the marvels of this age! My mind overflows with new inventions and artworks inspired by the cosmos!\"", None),
     ]),
@@ -367,9 +369,9 @@ impl Dialogue {
       ("END", "Sculpting in zero-g... Now that would be something to see!", "Leonardo: \"Indeed! The possibilities are as endless as space itself. Now, I must go - I have an appointment to exchange ideas with a sentient gas cloud!\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 
-  pub const CLEOPATRA:Self = &[
+  pub const CLEOPATRA:Self = Self::new(&[
     ("A", &[
       ("B", "Queen Cleopatra! How are you adapting to the space age?", "Cleopatra: \"Greetings, cosmic traveler. I must say, ruling a galactic empire would have been... intriguing.\"", None),
     ]),
@@ -409,5 +411,5 @@ impl Dialogue {
       ("END", "Your administrative skills are truly universal, Your Highness.", "Cleopatra: \"Naturally. Now, I must go. These star charts won't decipher themselves, and I have a galaxy to unite!\"", None),
     ]),
     DIALOGUE_END,
-  ];
+  ]);
 }
