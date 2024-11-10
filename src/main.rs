@@ -304,13 +304,6 @@ enum Furniture {
   Bed
 }
 
-#[derive(Component, Clone)]
-enum Tile {
-  Air,
-  Wall(Material),
-  Floor(Material),
-  Furniture(Furniture, Material)
-}
 fn array_range<const LEN: usize>() -> [usize; LEN] {
   let mut arr = [0; LEN];
   for i in 0..LEN {
@@ -639,16 +632,6 @@ struct Container(Vec<Item>);
 struct Quality(u8);
 
 #[derive(Clone, Copy)]
-enum Material {
-  Stone(Stone),
-  Metal(Metal),
-  Wood(Wood),
-  Gem(Gem),
-  CrystalOre,
-  MetalOre,
-  Dirt
-}
-#[derive(Clone, Copy)]
 enum Stone {
   Granite,
   Marble,
@@ -669,7 +652,6 @@ enum Wood {
   Birch,
   Ironwood
 }
-
 #[derive(Clone, Copy)]
 enum Gem {
   Diamond,
@@ -690,6 +672,18 @@ enum MiscItem {
   DiHydrogenMonoxide,
   Rock,
   SpaceMinerals
+}
+#[derive(Clone, Copy)]
+enum Material {
+  Stone,
+  // Stone(Stone),
+  Metal(Metal),
+  // Wood(Wood),
+  Wood,
+  Gem(Gem),
+  CrystalOre,
+  MetalOre,
+  Dirt
 }
 
 #[derive(Clone)]
@@ -749,8 +743,6 @@ struct Magic {
 #[derive(Component)]
 struct Job(&'static str);
 #[derive(Component)]
-struct Grows(Template);
-#[derive(Component)]
 struct Burns {
   temp: i32
 }
@@ -758,44 +750,16 @@ struct Burns {
 struct Light(f32);
 #[derive(Component)]
 struct Flying;
-fn block(mat: Material) -> impl Bundle {
-  (Tile::Wall(mat),
-   Minable { item: Item::Block(mat),
-             labor: match mat {
-               Material::Stone(_) => Labor::Mine,
-               Material::Wood(_) => Labor::Woodcut,
-               _ => Labor::Mine
-             } })
-}
 fn granite() -> impl Bundle { block(Material::Stone(Stone::Granite)) }
 fn marble() -> impl Bundle { block(Material::Stone(Stone::Marble)) }
 fn gold_ore() -> impl Bundle { block(Material::Metal(Metal::Gold)) }
 
-fn furniture(mat: Material, kind: Furniture) -> impl Bundle {
-  // let k = K;
-  (Tile::Furniture(kind, mat), Quality(0))
-}
-
-// Block Templates
-
-// Furniture Templates
 fn granite_table() -> impl Bundle {
   furniture(Material::Stone(Stone::Granite), Furniture::Table)
 }
 
 fn oak_bed() -> impl Bundle { furniture(Material::Wood(Wood::Oak), Furniture::Bed) }
 
-// Workshop Templates
-fn forge(mat: Material) -> impl Bundle {
-  (name("forge"), Tile::Furniture(Furniture::Forge, mat), Container(vec![]), Quality(0))
-}
-
-// fn basic_tile(pos: IVec3, tile: Tile) -> impl Bundle {
-//   // let tile = Tile { walkable,
-//   //                   color: color.to_string() };
-//   let base_bundle = (tile, name(name));
-//   base_bundle
-// }
 fn basic_animal(nameval: &'static str, ch: char) -> impl Bundle {
   (name(nameval), RandomMovement, Visuals::character(chardisplay))
 }
@@ -806,7 +770,7 @@ fn rabbit() -> impl Bundle { basic_animal("rabbit", '🐇') }
 
 fn player() -> impl Bundle {
   (name("You"),
-   Player{},
+   Player {},
    EnemyMovement,
    AttackPlayer,
    Combat { hp: 30,
@@ -839,10 +803,6 @@ fn fire() -> impl Bundle {
    Fire { dir: Dir::East },
    SpaceObjectBundle::new(1.0, false, Visuals::character('🔥')))
 }
-
-// Helper Functions
-// fn entity(name: &'static str, ch: char) -> impl Bundle { (Name(name), Char(ch)) }
-
 fn monster(name: &'static str, ch: char, hp: i32, dmg: i32) -> impl Bundle {
   (Name(name), Char(ch), Combat { hp, dmg })
 }
@@ -855,10 +815,7 @@ fn craftsman(name: &'static str, ch: char, job: &'static str) -> impl Bundle {
 fn mage(name: &'static str, ch: char, mana: i32) -> impl Bundle {
   (monster(name, ch, 50, 5), Magic { mana })
 }
-// Block Templates
-fn granite() -> impl Bundle { (block("granite", "757575"), Burns { temp: 800 }) }
 fn gold_ore() -> impl Bundle { (block("gold ore", "FFD700"), Ore { value: 100 }) }
-fn forge() -> impl Bundle { (block("forge", "FF4500"), Burns { temp: 2000 }, Light(5.0)) }
 fn farmland() -> impl Bundle { (block("farmland", "5A3A1A"), Grows(WHEAT)) }
 fn magma() -> impl Bundle {
   (block("magma", "FF4500"), Fluid { flow: 0.5 }, Burns { temp: 2000 }, Light(8.0))
@@ -902,196 +859,529 @@ fn anvil() -> impl Bundle {
   (block("anvil", "4A4A4A"), Tool { durability: 1000 }, Craftable { skill: 10 })
 }
 
-comment! {
-  #[derive(Clone)]
-  enum InteractMultipleOptions {
-    Salvage {
-      how_much_loot: u8
-    },
-    DialogueTREE(DialogueTree, &'static str),
-    ASTEROIDMiningMinigame {
-      resources_left: u8,
-      tool_durability: u8
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum BlockTexture {
+  Bricks,
+  Grass,
+  Rocks,
+  Snow,
+  Stone,
+  Sand,
+  Dirt
+}
+impl BlockTexture {
+  pub const NUM: usize = variant_count::<Self>();
+  pub fn to_u8(self) -> u8 { self as u8 }
+  pub fn to_u32(self) -> u32 { self as u32 }
+  pub fn from_index(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
+}
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Assoc, Component)]
+#[func(pub const fn textures(&self) -> [BlockTexture; 3])]
+#[repr(u8)]
+pub enum BlockType {
+  #[assoc(textures = [BlockTexture::Bricks; 3])]
+  Bricks,
+  #[assoc(textures = [BlockTexture::Grass, BlockTexture::Grass, BlockTexture::Dirt])]
+  Grass,
+  #[assoc(textures = [BlockTexture::Rocks; 3])]
+  Rocks,
+  #[assoc(textures = [BlockTexture::Snow, BlockTexture::Snow, BlockTexture::Dirt])]
+  Snow,
+  #[assoc(textures = [BlockTexture::Stone; 3])]
+  Stone,
+  #[assoc(textures = [BlockTexture::Sand; 3])]
+  Sand,
+  #[assoc(textures = [BlockTexture::Dirt; 3])]
+  Dirt
+}
+impl BlockType {
+  pub const NUM: usize = variant_count::<Self>();
+  pub fn to_index(self) -> u8 { self as u8 }
+  pub fn to_u32(self) -> u32 { self as u32 }
+  pub fn from_index(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
+}
+impl From<BlockType> for u8 {
+  fn from(block_type: BlockType) -> u8 { block_type as u8 }
+}
+
+// Core block and world types
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum BlockType {
+    Air,
+    Stone,
+    Dirt,
+    Sand,
+    Snow,
+    Bricks,
+    // Add other types as needed
+}
+
+impl BlockType {
+    pub fn is_solid(&self) -> bool {
+        match self {
+            BlockType::Air => false,
+            _ => true,
+        }
+    }
+
+    pub fn is_mineable(&self) -> bool {
+        matches!(self,
+            BlockType::Stone |
+            BlockType::Dirt |
+            BlockType::Sand
+        )
+    }
+}
+
+// Simple world storage - just blocks and entities
+#[derive(Resource)]
+pub struct GameWorld {
+    blocks: HashMap<IVec3, BlockType>,
+    entities: HashMap<IVec3, Vec<Entity>>,
+}
+
+impl Default for GameWorld {
+    fn default() -> Self {
+        Self {
+            blocks: HashMap::new(),
+            entities: HashMap::new(),
+        }
+    }
+}
+
+impl GameWorld {
+    pub fn set_block(&mut self, pos: IVec3, block: BlockType) {
+        match block {
+            BlockType::Air => { self.blocks.remove(&pos); }
+            _ => { self.blocks.insert(pos, block); }
+        }
+    }
+
+    pub fn get_block(&self, pos: IVec3) -> BlockType {
+        self.blocks.get(&pos).copied().unwrap_or(BlockType::Air)
+    }
+
+    pub fn is_walkable(&self, pos: IVec3) -> bool {
+        !self.get_block(pos).is_solid()
+    }
+
+    // Entity position tracking
+    pub fn move_entity(&mut self, entity: Entity, from: IVec3, to: IVec3) {
+        // Remove from old position
+        if let Some(entities) = self.entities.get_mut(&from) {
+            entities.retain(|&e| e != entity);
+            if entities.is_empty() {
+                self.entities.remove(&from);
+            }
+        }
+
+        // Add to new position
+        self.entities.entry(to)
+            .or_insert_with(Vec::new)
+            .push(entity);
+    }
+
+    pub fn get_entities_at(&self, pos: IVec3) -> &[Entity] {
+        self.entities.get(&pos).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+}
+
+// Simple component for moving entities
+#[derive(Component)]
+pub struct Position(pub IVec3);
+
+// System to sync positions with world state
+pub fn sync_positions(
+    mut world: ResMut<GameWorld>,
+    query: Query<(Entity, &Position), Changed<Position>>,
+) {
+    for (entity, pos) in query.iter() {
+        // We only track the current position, no need to store old one
+        world.move_entity(entity, pos.0, pos.0);
+    }
+}
+
+// Simple movement system example
+pub fn move_entities(
+    world: Res<GameWorld>,
+    mut query: Query<(&mut Position, &Movement)>,
+    time: Res<Time>,
+) {
+    for (mut pos, movement) in query.iter_mut() {
+        let target = pos.0 + movement.direction;
+        if world.is_walkable(target) {
+            pos.0 = target;
+        }
+    }
+}
+
+// Plugin to organize everything
+pub struct GamePlugin;
+
+impl Plugin for GamePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<GameWorld>()
+           .add_systems(Update, (
+               sync_positions,
+               move_entities,
+           ));
+    }
+}
+
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Location(pub IVec3);
+impl Location {
+  pub fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
+
+  pub fn manhattan_distance(&self, other: &Location) -> i32 {
+    let diff = self.0 - other.0;
+    diff.x.abs() + diff.y.abs() + diff.z.abs()
+  }
+}
+
+#[derive(Clone)]
+enum Tile {
+  Wall(Material),
+  // Floor(Material),
+  Open {
+    floor: Option<Material>,
+    entities: Vec<Entity>
+  }
+}
+#[derive(Default, Resource)]
+struct Blocks(HashMap<IVec3, BlockType>);
+#[derive(Resource)]
+pub struct BlockWorld {
+  blocks: HashMap<IVec3, Tile>,
+  // Cache of entities by position for quick lookups
+  position_cache: HashMap<Entity, IVec3>
+}
+
+// System to keep Location components in sync with WorldMap
+pub fn sync_entity_locations(mut commands: Commands,
+                             mut world_map: ResMut<WorldMap>,
+                             mut moved_query: Query<(Entity, &mut Location),
+                                   Changed<Location>>) {
+  for (entity, mut location) in moved_query.iter_mut() {
+    let old_pos = location.0;
+    // Remove from old position
+    world_map.remove_entity(old_pos, entity);
+    // Add to new position if it's walkable
+    if world_map.is_walkable(location.0) {
+      world_map.add_entity(location.0, entity);
+    } else {
+      // If the new position isn't walkable, revert the location
+      location.0 = old_pos;
+      world_map.add_entity(old_pos, entity);
     }
   }
-  impl InteractMultipleOptions {
-    fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
-      match self {
-        InteractMultipleOptions::ASTEROIDMiningMinigame { resources_left,
-                                                          tool_durability } => {
-          let msg =
-            format!("You're mining an asteroid. Resources left: {}. Tool durability: {}.",
-                    resources_left, tool_durability);
-          let mut options = vec![];
+}
 
-          if resources_left > 0 && tool_durability > 0 {
-            options.push((
-              "Mine carefully".to_string(),
-              MyCommand::multi([
-                MyCommand::message_add("You mine carefully, preserving your tool."),
-                MyCommand::give_item_to_player(Item::SpaceMinerals),
-              ]),
-              Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability },
-            ));
-            options.push((
-              "Mine aggressively".to_string(),
-              MyCommand::multi([
-                MyCommand::message_add("You mine aggressively, risking your tool for more resources."),
-                MyCommand::give_item_to_player(Item::SpaceMinerals),
-                MyCommand::give_item_to_player(Item::SpaceMinerals),
-              ]),
-              Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability: tool_durability - 1 },
-            ));
-          }
+// System to cleanup entities when they're despawned
+pub fn cleanup_despawned_entities(mut world_map: ResMut<WorldMap>,
+                                  removed_entities: RemovedComponents<Location>,
+                                  query: Query<&Location>) {
+  for entity in removed_entities.iter() {
+    // We only need to cleanup if the entity had a Location
+    if let Ok(location) = query.get(entity) {
+      world_map.remove_entity(location.0, entity);
+    }
+  }
+}
 
-          options.push(("Leave asteroid".to_string(),
-                        MyCommand::end_object_interaction_mini_game(),
-                        self.clone()));
+// Helper system to ensure Transform and Location stay in sync
+pub fn sync_transforms(mut query: Query<(&Transform, &mut Location), Changed<Transform>>) {
+  for (transform, mut location) in query.iter_mut() {
+    location.0 = IVec3::new(transform.translation.x as i32,
+                            transform.translation.y as i32,
+                            transform.translation.z as i32);
+  }
+}
 
-          (msg, options)
+// Plugin to organize all the systems
+#[derive(Default)]
+pub struct WorldPlugin;
+
+impl Plugin for WorldPlugin {
+  fn build(&self, app: &mut App) {
+    app.init_resource::<WorldMap>()
+           .add_systems(Update, (
+               sync_entity_locations,
+               cleanup_despawned_entities,
+               sync_transforms,
+           ).chain());
+  }
+}
+
+// Example usage in game code:
+fn spawn_entity(commands: &mut Commands, pos: IVec3, world_map: &mut WorldMap) -> Entity {
+  // Only spawn if the position is walkable
+  if !world_map.is_walkable(pos) {
+    panic!("Attempted to spawn entity in non-walkable position");
+  }
+
+  let entity = commands.spawn((
+    Location(pos),
+    Transform::from_translation(Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)) // ... other components
+  ))
+                       .id();
+
+  world_map.add_entity(pos, entity);
+  entity
+}
+
+#[derive(Component)]
+struct Furniture;
+fn furniture(mat: Material, kind: Furniture) -> impl Bundle {
+  (Tile::Furniture(kind, mat), Furniture)
+}
+
+fn forge(mat: Material) -> impl Bundle {
+  (name("forge"), Tile::Furniture(Furniture::Forge, mat), Container(vec![]), Quality(0))
+}
+
+impl Default for BlockWorld {
+  fn default() -> Self {
+    Self { blocks: HashMap::new(),
+           position_cache: HashMap::new() }
+  }
+}
+
+// Spatial relationship queries
+impl BlockWorld {
+  pub fn new() -> Self { Self { blocks: HashMap::new() } }
+  pub fn set_block(&mut self, pos: IVec3, material: Material) {
+    self.blocks.insert(pos, Tile::Solid(material));
+  }
+  pub fn set_furniture(&mut self, pos: IVec3, furniture: Furniture, material: Material) {
+    self.blocks
+        .insert(pos, Tile::Furniture(furniture, material));
+  }
+  pub fn remove_block(&mut self, pos: IVec3) {
+    if let Some(Tile::Open(entities)) = self.blocks.get(&pos) {
+      // If it was an open tile with entities, preserve the entities
+      self.blocks.insert(pos, Tile::Open(entities.clone()));
+    } else {
+      self.blocks.insert(pos, Tile::Open(Vec::new()));
+    }
+  }
+  pub fn add_entity(&mut self, pos: IVec3, entity: Entity) {
+    match self.blocks.get_mut(&pos) {
+      Some(Tile::Open(entities)) => {
+        if !entities.contains(&entity) {
+          entities.push(entity);
         }
-        InteractMultipleOptions::Salvage { how_much_loot } => {
-          let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
-          let options = if how_much_loot > 0 {
-            vec![("take some".to_string(),
-                  MyCommand::multi([MyCommand::message_add("You found loot"),
-                                    MyCommand::give_item_to_player(Item::SpaceCOIN)]),
-                  Self::Salvage { how_much_loot: how_much_loot - 1 }),
-                 ("don't take".to_string(), MyCommand::none(), self.clone()),
-                 ("leave".to_string(),
-                  MyCommand::end_object_interaction_mini_game(),
-                  self.clone()),]
-          } else {
-            vec![("leave".to_string(),
-                  MyCommand::end_object_interaction_mini_game(),
-                  self.clone()),]
-          };
-          (msg, options)
-        }
-        InteractMultipleOptions::DialogueTREE(tree, node) => {
-          let msg = "talking npc".to_string();
-          if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
-            let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
-              (playersay.to_string(),
-               MyCommand::message_add(npcsay.to_string()),
-               InteractMultipleOptions::DialogueTREE(tree,
-                                                     *new_node))
-            });
-            (msg, options.collect())
-          } else {
-            (msg, default())
-          }
-        } // InteractMultipleOptions::SPHERICALCOWDialogueTREE { node } => {
-        //   let msg = "It's a spherical cow in a vacuum".to_string();
-        //   let options = node.options()
-        //                     .into_iter()
-        //                     .map(|(node, playersay, cowsay)| {
-        //                       (playersay.to_string(),
-        //                        MyCommand::message_add(cowsay),
-        //                        InteractMultipleOptions::SPHERICALCOWDialogueTREE { node })
-        //                     })
-        //                     .collect();
-        //   (msg, options)
-        // }
+      }
+      Some(_) => {
+        warn!("Attempted to add entity to non-open tile at {:?}", pos);
+      }
+      None => {
+        self.blocks.insert(pos, Tile::Open(vec![entity]));
       }
     }
   }
-
-  #[derive(Clone)]
-  enum InteractSingleOption {
-    Message(String),
-    // Salvage { how_much_loot: u8 },
-    ASTEROID,
-    HPBOX,
-    Describe,
-    Item(Item),
-    Trade {
-      inputs: (Item, u32),
-      outputs: (Item, u32)
-    },
-    GATE(Vec3),
-    CONTAINER(Vec<(Item, u32)>)
+  pub fn remove_entity(&mut self, pos: IVec3, entity: Entity) {
+    if let Some(Tile::Open(entities)) = self.blocks.get_mut(&pos) {
+      entities.retain(|&e| e != entity);
+    }
+  }
+  pub fn get_tile(&self, pos: IVec3) -> Option<&Tile> { self.blocks.get(&pos) }
+  pub fn is_walkable(&self, pos: IVec3) -> bool {
+    match self.blocks.get(&pos) {
+      Some(Tile::Open(_)) => true,
+      _ => false
+    }
   }
 
-  impl InteractSingleOption {
-    fn interact(self,
-                self_entity: Entity,
-                self_name: String,
-                player_inventory: &Inventory)
-                -> (String, MyCommand) {
-      match self {
-        InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
-        InteractSingleOption::ASTEROID => {
-          (format!("examine {self_name}"),
-           MyCommand::message_add("it's an asteroid"))
-        }
-        InteractSingleOption::HPBOX => {
-          ("take hp box".to_string(),
-           MyCommand::multi([MyCommand::update_player_component(|combat: Combat| {
-             Combat { hp: combat.hp + 50,
-                      ..combat }
-           }),
-                             MyCommand::despawn(self_entity)]))
-        }
-        InteractSingleOption::Describe => {
-          (format!("examine {self_name}"), MyCommand::message_add(self_name))
-        }
-        InteractSingleOption::Item(item) => {
-          (format!("take {self_name}"),
-           MyCommand::multi([MyCommand::despawn(self_entity),
-                             MyCommand::message_add(format!("You got a {}",debugfmt(item)) ),
-                             MyCommand::give_item_to_player(item)]))
-        }
+  pub fn get_entities_at(&self, pos: IVec3) -> Vec<Entity> {
+    match self.blocks.get(&pos) {
+      Some(Tile::Open(entities)) => entities.clone(),
+      _ => Vec::new()
+    }
+  }
+  // Core position queries
+  pub fn get_position(&self, entity: Entity) -> Option<IVec3> {
+    self.position_cache.get(&entity).copied()
+  }
 
-        InteractSingleOption::Trade { inputs: (input_item, input_number),
-                                      outputs: (output_item, output_number) } => {
-          ("trade".to_string(),
-           if let Some(&n) = player_inventory.0.get(&input_item)
-           && n >= input_number
-           {
-             MyCommand::multi([
-               MyCommand::mutate_player_component(move |mut inventory:&mut Inventory|{
-                 inventory.trade([(input_item, input_number)],[(output_item, output_number)]);
-               }),
-               MyCommand::message_add(format!("You traded {:?} {:?} for {:?} {:?}s",
-                                              input_number,
-                                              input_item,
-                                              output_number,
-                                              output_item))
-             ])
-           } else {
-             MyCommand::message_add("You don't have enough items")
-           })
-        }
-        InteractSingleOption::GATE(destination_pos) => {
-          ("interact".to_string(),
-           MyCommand::update_player_component(move |transform| Transform { translation:
-                                                                           destination_pos,
-                                                                           ..transform }))
-        }
-        InteractSingleOption::CONTAINER(items) => {
-          ("take container".to_string(),
-           MyCommand::multi([MyCommand::despawn(self_entity),
-                             MyCommand::message_add("you got things"),
-                             MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
-                               inventory.add_contents(items);
-                             })]))
+  pub fn get_entities_at(&self, pos: IVec3) -> Vec<Entity> {
+    match self.blocks.get(&pos) {
+      Some(Tile::Open(entities)) => entities.clone(),
+      _ => Vec::new()
+    }
+  }
+
+  pub fn is_walkable(&self, pos: IVec3) -> bool {
+    matches!(self.blocks.get(&pos), Some(Tile::Open(_)))
+  }
+
+  pub fn get_material_at(&self, pos: IVec3) -> Option<Material> {
+    match self.blocks.get(&pos) {
+      Some(Tile::Solid(mat)) => Some(*mat),
+      Some(Tile::Furniture(_, mat)) => Some(*mat),
+      _ => None
+    }
+  }
+
+  // Adjacency helpers
+  pub fn get_adjacent_positions(&self, pos: IVec3) -> Vec<IVec3> {
+    const DIRECTIONS: [IVec3; 6] = [IVec3::X,
+                                    -IVec3::X,
+                                    IVec3::Y,
+                                    -IVec3::Y,
+                                    IVec3::Z,
+                                    -IVec3::Z];
+    DIRECTIONS.iter().map(|dir| pos + *dir).collect()
+  }
+
+  pub fn get_adjacent_entities(&self, pos: IVec3) -> Vec<Entity> {
+    self.get_adjacent_positions(pos)
+        .iter()
+        .flat_map(|adj_pos| self.get_entities_at(*adj_pos))
+        .collect()
+  }
+
+  // Advanced spatial queries
+  pub fn find_entities_in_radius(&self, center: IVec3, radius: i32) -> Vec<Entity> {
+    let mut result = Vec::new();
+    for x in -radius..=radius {
+      for y in -radius..=radius {
+        for z in -radius..=radius {
+          let pos = center + IVec3::new(x, y, z);
+          if Location(center).manhattan_distance(&Location(pos)) <= radius {
+            result.extend(self.get_entities_at(pos));
+          }
         }
       }
     }
+    result
   }
 
-  #[derive(Component, Clone)]
-  enum Interact {
-    SingleOption(InteractSingleOption),
-    MultipleOptions(InteractMultipleOptions)
-  }
+  pub fn find_reachable_positions(&self, start: IVec3, max_distance: i32) -> HashSet<IVec3> {
+    let mut visited = HashSet::new();
+    let mut queue = vec![start];
+    visited.insert(start);
 
-  impl Interact {
-    fn dialogue_tree_default_state(tree: DialogueTREE) -> Self {
-      let (node, _) = tree[0];
-      Self::MultipleOptions(InteractMultipleOptions::DialogueTREE(tree, node))
+    while let Some(pos) = queue.pop() {
+      if Location(start).manhattan_distance(&Location(pos)) >= max_distance {
+        continue;
+      }
+
+      for adj_pos in self.get_adjacent_positions(pos) {
+        if self.is_walkable(adj_pos) && !visited.contains(&adj_pos) {
+          visited.insert(adj_pos);
+          queue.push(adj_pos);
+        }
+      }
     }
+    visited
+  }
+}
+
+// High-level spatial relationship queries
+pub struct SpatialQueries;
+
+impl SpatialQueries {
+  // Find entities with components that are adjacent to a position
+  pub fn find_adjacent<T: Component>(world: &BlockWorld,
+                                     pos: IVec3,
+                                     query: &Query<(Entity, &Location, &T)>)
+                                     -> Vec<(Entity, &T)> {
+    let adjacent_positions: HashSet<_> =
+      world.get_adjacent_positions(pos).into_iter().collect();
+    query.iter()
+         .filter(|(_, loc, _)| adjacent_positions.contains(&loc.0))
+         .map(|(entity, _, component)| (entity, component))
+         .collect()
+  }
+
+  // Find the nearest entity with a specific component
+  pub fn find_nearest<T: Component>(world: &BlockWorld,
+                                    from: IVec3,
+                                    query: &Query<(Entity, &Location, &T)>)
+                                    -> Option<(Entity, &T, i32)> {
+    query.iter()
+         .map(|(entity, loc, component)| {
+           (entity, component, Location(from).manhattan_distance(&loc))
+         })
+         .min_by_key(|&(_, _, dist)| dist)
+  }
+
+  // Check if two entities are adjacent
+  pub fn are_adjacent(world: &BlockWorld, entity1: Entity, entity2: Entity) -> bool {
+    let pos1 = world.get_position(entity1)?;
+    let pos2 = world.get_position(entity2)?;
+    Location(pos1).manhattan_distance(&Location(pos2)) == 1
+  }
+}
+
+// Systems to maintain spatial relationships
+pub fn sync_locations(mut world: ResMut<BlockWorld>,
+                      mut commands: Commands,
+                      mut moved_query: Query<(Entity, &Location), Changed<Location>>) {
+  for (entity, location) in moved_query.iter() {
+    if let Some(old_pos) = world.position_cache.get(&entity) {
+      world.remove_entity(*old_pos, entity);
+    }
+
+    if world.is_walkable(location.0) {
+      world.add_entity(location.0, entity);
+      world.position_cache.insert(entity, location.0);
+    }
+  }
+}
+
+// Example spatial relationship components
+#[derive(Component)]
+pub struct RequiresAdjacent<T: Component> {
+  _phantom: std::marker::PhantomData<T>
+}
+
+#[derive(Component)]
+pub struct RequiresNearby<T: Component> {
+  radius: i32,
+  _phantom: std::marker::PhantomData<T>
+}
+
+// Example system using spatial relationships
+pub fn check_spatial_requirements(world: Res<BlockWorld>,
+                                  query_requires_adjacent: Query<(Entity,
+                                         &Location,
+                                         &RequiresAdjacent<T>)>,
+                                  query_component: Query<(Entity, &Location, &T)>) {
+  for (entity, location, _requirement) in query_requires_adjacent.iter() {
+    let adjacent = SpatialQueries::find_adjacent(&world, location.0, &query_component);
+    if adjacent.is_empty() {
+      // Handle case where required adjacent entity is missing
+      // e.g., disable crafting, stop growth, etc.
+    }
+  }
+}
+
+// Example usage:
+fn spawn_with_spatial_requirement(commands: &mut Commands,
+                                  pos: IVec3,
+                                  world: &mut BlockWorld) {
+  // Spawn an entity that requires an adjacent Craftable
+  let entity = commands.spawn((Location(pos),
+                       RequiresAdjacent::<Craftable> { _phantom:
+                                                         std::marker::PhantomData }))
+               .id();
+
+  world.add_entity(pos, entity);
+}
+
+// Plugin to organize all spatial systems
+#[derive(Default)]
+pub struct SpatialPlugin;
+
+impl Plugin for SpatialPlugin {
+  fn build(&self, app: &mut App) {
+    app.init_resource::<BlockWorld>()
+       .add_systems(Update, (sync_locations, check_spatial_requirements));
   }
 }
 
@@ -1621,55 +1911,6 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   let position = Vec3::new(0.0, 4.0, 0.0);
   println("setup");
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum BlockTexture {
-  Bricks,
-  Grass,
-  Rocks,
-  Snow,
-  Stone,
-  Sand,
-  Dirt
-}
-impl BlockTexture {
-  pub const NUM: usize = variant_count::<Self>();
-  pub fn to_u8(self) -> u8 { self as u8 }
-  pub fn to_u32(self) -> u32 { self as u32 }
-  pub fn from_index(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
-}
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Assoc, Component)]
-#[func(pub const fn textures(&self) -> [BlockTexture; 3])]
-#[repr(u8)]
-pub enum BlockType {
-  #[assoc(textures = [BlockTexture::Bricks; 3])]
-  Bricks,
-  #[assoc(textures = [BlockTexture::Grass, BlockTexture::Grass, BlockTexture::Dirt])]
-  Grass,
-  #[assoc(textures = [BlockTexture::Rocks; 3])]
-  Rocks,
-  #[assoc(textures = [BlockTexture::Snow, BlockTexture::Snow, BlockTexture::Dirt])]
-  Snow,
-  #[assoc(textures = [BlockTexture::Stone; 3])]
-  Stone,
-  #[assoc(textures = [BlockTexture::Sand; 3])]
-  Sand,
-  #[assoc(textures = [BlockTexture::Dirt; 3])]
-  Dirt
-}
-impl BlockType {
-  pub const NUM: usize = variant_count::<Self>();
-  pub fn to_index(self) -> u8 { self as u8 }
-  pub fn to_u32(self) -> u32 { self as u32 }
-  pub fn from_index(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
-}
-impl From<BlockType> for u8 {
-  fn from(block_type: BlockType) -> u8 { block_type as u8 }
-}
-#[derive(Default, Resource)]
-struct Blocks(HashMap<IVec3, BlockType>);
-
 #[derive(Resource, Clone, Default)]
 struct MyMainWorld;
 
@@ -1981,6 +2222,199 @@ comment! {
     //                           false,
     //                           Visuals::sprite(MySprite::SPACESHIPABANDONED)))
     // },
+  }
+}
+
+comment! {
+  #[derive(Clone)]
+  enum InteractMultipleOptions {
+    Salvage {
+      how_much_loot: u8
+    },
+    DialogueTREE(DialogueTree, &'static str),
+    ASTEROIDMiningMinigame {
+      resources_left: u8,
+      tool_durability: u8
+    }
+  }
+  impl InteractMultipleOptions {
+    fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
+      match self {
+        InteractMultipleOptions::ASTEROIDMiningMinigame { resources_left,
+                                                          tool_durability } => {
+          let msg =
+            format!("You're mining an asteroid. Resources left: {}. Tool durability: {}.",
+                    resources_left, tool_durability);
+          let mut options = vec![];
+
+          if resources_left > 0 && tool_durability > 0 {
+            options.push((
+              "Mine carefully".to_string(),
+              MyCommand::multi([
+                MyCommand::message_add("You mine carefully, preserving your tool."),
+                MyCommand::give_item_to_player(Item::SpaceMinerals),
+              ]),
+              Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability },
+            ));
+            options.push((
+              "Mine aggressively".to_string(),
+              MyCommand::multi([
+                MyCommand::message_add("You mine aggressively, risking your tool for more resources."),
+                MyCommand::give_item_to_player(Item::SpaceMinerals),
+                MyCommand::give_item_to_player(Item::SpaceMinerals),
+              ]),
+              Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability: tool_durability - 1 },
+            ));
+          }
+
+          options.push(("Leave asteroid".to_string(),
+                        MyCommand::end_object_interaction_mini_game(),
+                        self.clone()));
+
+          (msg, options)
+        }
+        InteractMultipleOptions::Salvage { how_much_loot } => {
+          let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
+          let options = if how_much_loot > 0 {
+            vec![("take some".to_string(),
+                  MyCommand::multi([MyCommand::message_add("You found loot"),
+                                    MyCommand::give_item_to_player(Item::SpaceCOIN)]),
+                  Self::Salvage { how_much_loot: how_much_loot - 1 }),
+                 ("don't take".to_string(), MyCommand::none(), self.clone()),
+                 ("leave".to_string(),
+                  MyCommand::end_object_interaction_mini_game(),
+                  self.clone()),]
+          } else {
+            vec![("leave".to_string(),
+                  MyCommand::end_object_interaction_mini_game(),
+                  self.clone()),]
+          };
+          (msg, options)
+        }
+        InteractMultipleOptions::DialogueTREE(tree, node) => {
+          let msg = "talking npc".to_string();
+          if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
+            let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
+              (playersay.to_string(),
+               MyCommand::message_add(npcsay.to_string()),
+               InteractMultipleOptions::DialogueTREE(tree,
+                                                     *new_node))
+            });
+            (msg, options.collect())
+          } else {
+            (msg, default())
+          }
+        } // InteractMultipleOptions::SPHERICALCOWDialogueTREE { node } => {
+        //   let msg = "It's a spherical cow in a vacuum".to_string();
+        //   let options = node.options()
+        //                     .into_iter()
+        //                     .map(|(node, playersay, cowsay)| {
+        //                       (playersay.to_string(),
+        //                        MyCommand::message_add(cowsay),
+        //                        InteractMultipleOptions::SPHERICALCOWDialogueTREE { node })
+        //                     })
+        //                     .collect();
+        //   (msg, options)
+        // }
+      }
+    }
+  }
+
+  #[derive(Clone)]
+  enum InteractSingleOption {
+    Message(String),
+    // Salvage { how_much_loot: u8 },
+    ASTEROID,
+    HPBOX,
+    Describe,
+    Item(Item),
+    Trade {
+      inputs: (Item, u32),
+      outputs: (Item, u32)
+    },
+    GATE(Vec3),
+    CONTAINER(Vec<(Item, u32)>)
+  }
+
+  impl InteractSingleOption {
+    fn interact(self,
+                self_entity: Entity,
+                self_name: String,
+                player_inventory: &Inventory)
+                -> (String, MyCommand) {
+      match self {
+        InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
+        InteractSingleOption::ASTEROID => {
+          (format!("examine {self_name}"),
+           MyCommand::message_add("it's an asteroid"))
+        }
+        InteractSingleOption::HPBOX => {
+          ("take hp box".to_string(),
+           MyCommand::multi([MyCommand::update_player_component(|combat: Combat| {
+             Combat { hp: combat.hp + 50,
+                      ..combat }
+           }),
+                             MyCommand::despawn(self_entity)]))
+        }
+        InteractSingleOption::Describe => {
+          (format!("examine {self_name}"), MyCommand::message_add(self_name))
+        }
+        InteractSingleOption::Item(item) => {
+          (format!("take {self_name}"),
+           MyCommand::multi([MyCommand::despawn(self_entity),
+                             MyCommand::message_add(format!("You got a {}",debugfmt(item)) ),
+                             MyCommand::give_item_to_player(item)]))
+        }
+
+        InteractSingleOption::Trade { inputs: (input_item, input_number),
+                                      outputs: (output_item, output_number) } => {
+          ("trade".to_string(),
+           if let Some(&n) = player_inventory.0.get(&input_item)
+           && n >= input_number
+           {
+             MyCommand::multi([
+               MyCommand::mutate_player_component(move |mut inventory:&mut Inventory|{
+                 inventory.trade([(input_item, input_number)],[(output_item, output_number)]);
+               }),
+               MyCommand::message_add(format!("You traded {:?} {:?} for {:?} {:?}s",
+                                              input_number,
+                                              input_item,
+                                              output_number,
+                                              output_item))
+             ])
+           } else {
+             MyCommand::message_add("You don't have enough items")
+           })
+        }
+        InteractSingleOption::GATE(destination_pos) => {
+          ("interact".to_string(),
+           MyCommand::update_player_component(move |transform| Transform { translation:
+                                                                           destination_pos,
+                                                                           ..transform }))
+        }
+        InteractSingleOption::CONTAINER(items) => {
+          ("take container".to_string(),
+           MyCommand::multi([MyCommand::despawn(self_entity),
+                             MyCommand::message_add("you got things"),
+                             MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
+                               inventory.add_contents(items);
+                             })]))
+        }
+      }
+    }
+  }
+
+  #[derive(Component, Clone)]
+  enum Interact {
+    SingleOption(InteractSingleOption),
+    MultipleOptions(InteractMultipleOptions)
+  }
+
+  impl Interact {
+    fn dialogue_tree_default_state(tree: DialogueTREE) -> Self {
+      let (node, _) = tree[0];
+      Self::MultipleOptions(InteractMultipleOptions::DialogueTREE(tree, node))
+    }
   }
 }
 #[bevy_main]
