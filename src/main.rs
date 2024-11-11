@@ -519,7 +519,6 @@ pub struct Combat {
   pub hp: u32,
   pub damage: u32
 }
-
 #[derive(Component, Clone, Default)]
 pub struct SpaceObject {
   pub scale: f32,
@@ -719,7 +718,6 @@ enum Labor {
   Mason,
   Smith
 }
-
 #[derive(Component)]
 struct Digger {
   speed: f32
@@ -776,7 +774,9 @@ fn player() -> impl Bundle {
    Combat { hp: 30,
             damage: 1,
             is_hostile: true },
-   SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('👿')))
+   Visuals::
+   // SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('👿'))
+  )
 }
 fn enemy() -> impl Bundle {
   (name("enemy"),
@@ -872,9 +872,17 @@ pub enum BlockTexture {
 }
 impl BlockTexture {
   pub const NUM: usize = variant_count::<Self>();
-  pub fn to_u8(self) -> u8 { self as u8 }
-  pub fn to_u32(self) -> u32 { self as u32 }
-  pub fn from_index(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
+}
+impl From<u8> for BlockTexture {
+  fn from(index: u8) -> Self {
+    unsafe { std::mem::transmute(index) }
+  }
+}
+impl From<BlockTexture> for u8 {
+  fn from(block_texture: BlockTexture) -> u8 { block_texture as u8 }
+}
+impl From<BlockTexture> for u32 {
+  fn from(block_texture: BlockTexture) -> u32 { block_texture as u32 }
 }
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Assoc, Component)]
 #[func(pub const fn textures(&self) -> [BlockTexture; 3])]
@@ -897,25 +905,17 @@ pub enum BlockType {
 }
 impl BlockType {
   pub const NUM: usize = variant_count::<Self>();
-  pub fn to_index(self) -> u8 { self as u8 }
-  pub fn to_u32(self) -> u32 { self as u32 }
-  pub fn from_index(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
+}
+impl From<u8> for BlockType {
+  fn from(index: u8) -> Self {
+    unsafe { std::mem::transmute(index) }
+  }
 }
 impl From<BlockType> for u8 {
   fn from(block_type: BlockType) -> u8 { block_type as u8 }
 }
-
-// Core block and world types
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum BlockType {
-    Air,
-    Stone,
-    Dirt,
-    Sand,
-    Snow,
-    Bricks,
-    // Add other types as needed
+impl From<BlockType> for u32 {
+  fn from(block_type: BlockType) -> u32 { block_type as u32 }
 }
 
 impl BlockType {
@@ -925,17 +925,10 @@ impl BlockType {
             _ => true,
         }
     }
-
     pub fn is_mineable(&self) -> bool {
-        matches!(self,
-            BlockType::Stone |
-            BlockType::Dirt |
-            BlockType::Sand
-        )
+        matches!(self, BlockType::Stone | BlockType::Dirt | BlockType::Sand)
     }
 }
-
-// Simple world storage - just blocks and entities
 #[derive(Resource)]
 pub struct GameWorld {
     blocks: HashMap<IVec3, BlockType>,
