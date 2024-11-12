@@ -25,6 +25,7 @@ mod dialogue;
 mod mycommand;
 use {dialogue::Dialogue, enum_assoc};
 
+use bevy::ecs::query::ArchetypeFilter;
 // use crate::dialogue::DialogueTree
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
@@ -402,92 +403,77 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
                                ..default() };
   let invisible_material = get_material_handle(MyMaterial::INVISIBLE);
 
-  for (entity, mut visuals) in &mut visuals_q {
+  for (e, mut visuals) in &mut visuals_q {
     if visuals.is_changed() || !visuals.done {
       visuals.done = true;
       *n += 1;
       if *n % 100 == 0 {
         println!("{}", *n);
       }
-
-      let main_visual_child = *visual_child_entities.entry(entity).or_insert_with(|| {
-                                                                    c.spawn((
-                    PbrBundle {
-                        material: invisible_material.clone(),
-                        mesh: get_mesh_handle(GenMesh::SPHERE),
-                        ..default()
-                    },
-                ))
-                .set_parent(entity)
-                .id()
-                                                                  });
-
-      c.entity(main_visual_child).despawn_descendants();
-
       if let Some(text) = visuals.text.clone() {
-        c.spawn(Text2dBundle {
+        c.entity(e)
+           .insert(Text2dBundle {
                     text: Text::from_section(text, text_style.clone()),
                     transform: Transform::from_xyz(0.0, 1.5, 0.0).with_scale(Vec3::splat(0.07)),
                     ..default()
-                })
-                .set_parent(main_visual_child);
+                });
       }
-
       if let Some(sprite) = visuals.sprite {
         let sprite_handle = get_sprite_handle(sprite);
-        // sprite_3d_params.images.get(image_handle.clone())
         if let Some(image) = sprite_3d_params.images.get(&sprite_handle) {
           let image_height = image.height();
-          c.spawn((VisualSprite,
-                   bevy_sprite3d::Sprite3d { image: sprite_handle,
-                                             pixels_per_metre: image_height as f32,
-                                             double_sided: true,
-                                             alpha_mode: AlphaMode::Blend,
-                                             unlit: visuals.unlit,
-                                             transform: Transform::from_xyz(0.0, 0.0,
-                                                                            0.0),
-                                             ..default() }.bundle(&mut sprite_3d_params)))
-           .set_parent(main_visual_child);
+
+          c.entity(e)
+           .insert((
+                     bevy_sprite3d::Sprite3d { image: sprite_handle,
+                                               pixels_per_metre: image_height as f32,
+                                               double_sided: true,
+                                               alpha_mode: AlphaMode::Blend,
+                                               unlit: visuals.unlit,
+                                               transform: Transform::from_xyz(5.0, 5.0,
+                                                                              5.0),
+                                               ..default() }.bundle(&mut sprite_3d_params)
+                     // SpatialBundle { ..default() }
+                   ));
+          println("asdfasdf");
         } else {
           visuals.done = false;
         }
       }
-
       if let Some((material, gen_mesh)) = visuals.material_mesh {
         let material = get_material_handle(material);
         let mesh = get_mesh_handle(gen_mesh);
-        c.spawn(PbrBundle { material,
-                            mesh,
-                            ..default() })
-         .set_parent(main_visual_child);
+        c.entity(e).insert(PbrBundle { material,
+                                       mesh,
+                                       ..default() });
       }
     }
   }
 }
 #[derive(Component, Clone)]
 struct FaceCamera;
-pub fn face_camera(camq: Query<&GlobalTransform, With<Camera3d>>,
-                   mut camera_facers_q: Query<(&mut Transform, &GlobalTransform),
-                         (With<FaceCamera>, Without<Camera3d>)>) {
-  if let Ok(cam_globaltransform) = camq.get_single() {
-    for (mut transform, globaltransform) in &mut camera_facers_q {
+pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
+                                  mut camera_facers_q: Query<(&Location, &mut Transform),
+                                        (With<Visuals>,
+                                         Without<Camera3d>)>) {
+  if let Ok(cam_transform) = camq.get_single() {
+    for (&loc, mut transform) in &mut camera_facers_q {
       let dir = Vec3 { y: 0.0,
-                       ..(globaltransform.translation()
-                          - cam_globaltransform.translation()) };
-      transform.look_to(dir, Vec3::Y);
+                       ..(transform.translation - cam_transform.translation) };
+      *transform = Transform::from(loc).looking_to(dir, Vec3::Y);
     }
   }
 }
-#[derive(Component, Default, Clone, Copy, Debug)]
-struct Pos(pub IVec3);
+// #[derive(Component, Default, Clone, Copy, Debug)]
+// struct Pos(pub IVec3);
 
-impl From<Pos> for Vec3 {
-  fn from(Pos(iv): Pos) -> Self { iv.as_vec3() }
+// impl From<Pos> for Vec3 {
+//   fn from(Pos(iv): Pos) -> Self { iv.as_vec3() }
+// }
+
+fn block_entity(loc: Location, block_type: BlockType) -> impl Bundle {
+  (loc, block_type, NewBlock)
 }
-
-fn block_entity(pos: Pos, block_type: BlockType) -> impl Bundle { (pos, block_type) }
-// const NORMAL_NPC_SCALE: f32 = 1.9;
-// const NORMAL_NPC_THRUST: f32 = 400.0;
 #[derive(Component, Clone)]
 struct RandomMovement;
 #[derive(Component, Clone)]
@@ -509,6 +495,8 @@ enum Dir {
   Northwest,
   Here
 }
+const NORMAL_NPC_SCALE: f32 = 1.9;
+const NORMAL_NPC_THRUST: f32 = 400.0;
 #[derive(Component)]
 pub struct Fire {
   pub dir: Dir
@@ -526,20 +514,21 @@ pub struct SpaceObject {
 }
 
 // #[derive(Bundle, Clone)]
-// pub struct SpaceObjectBundle((SpaceObject,
-//                                Visuals,
-//                                LockedAxes,
-//                                ColliderMassProperties,
-//                                Collider,
-//                                RigidBody,
-//                                LinearDamping,
-//                                AngularDamping,
-//                                LinearVelocity,
-//                                AngularVelocity,
-//                                ExternalForce,
-//                                ExternalImpulse,
-//                                SpatialBundle));
-// impl SpaceObjectBundle {
+// pub struct SpriteBillboardBundle((SpaceObject,
+//                                    Visuals,
+//                                    LockedAxes,
+//                                    ColliderMassProperties,
+//                                    Collider,
+//                                    RigidBody,
+//                                    LinearDamping,
+//                                    AngularDamping,
+//                                    LinearVelocity,
+//                                    AngularVelocity,
+//                                    ExternalForce,
+//                                    ExternalImpulse,
+//                                    SpatialBundle
+// ));
+// impl SpriteBillboardBundle {
 //   fn new(translation: IVec3, scale: f32, can_move: bool, visuals: Visuals) -> Self {
 //     let collider = Collider::sphere(1.0);
 //     Self((SpaceObject { scale, ..default() },
@@ -609,7 +598,7 @@ impl Faction {
 }
 
 // type Spawnable = fn() -> Box<dyn FnOnce(&mut Commands, Pos)>;
-struct Spawnable(fn(&mut Commands, Pos));
+struct Spawnable(fn(&mut Commands, Location));
 // impl<B: Bundle> From<B> for Box<dyn FnOnce(&mut Commands, Pos)> {
 //   fn from(b: B) -> Self {
 //     Box::new(|commands, pos| {
@@ -748,18 +737,18 @@ struct Burns {
 struct Light(f32);
 #[derive(Component)]
 struct Flying;
-fn granite() -> impl Bundle { block(Material::Stone(Stone::Granite)) }
-fn marble() -> impl Bundle { block(Material::Stone(Stone::Marble)) }
-fn gold_ore() -> impl Bundle { block(Material::Metal(Metal::Gold)) }
+// fn granite() -> impl Bundle { block(Material::Stone(Stone::Granite)) }
+// fn marble() -> impl Bundle { block(Material::Stone(Stone::Marble)) }
+// fn gold_ore() -> impl Bundle { block(Material::Metal(Metal::Gold)) }
 
-fn granite_table() -> impl Bundle {
-  furniture(Material::Stone(Stone::Granite), Furniture::Table)
-}
+// fn granite_table() -> impl Bundle {
+//   furniture(Material::Stone(Stone::Granite), Furniture::Table)
+// }
 
-fn oak_bed() -> impl Bundle { furniture(Material::Wood(Wood::Oak), Furniture::Bed) }
+// fn oak_bed() -> impl Bundle { furniture(Material::Wood(Wood::Oak), Furniture::Bed) }
 
 fn basic_animal(nameval: &'static str, ch: char) -> impl Bundle {
-  (name(nameval), RandomMovement, Visuals::character(chardisplay))
+  (name(nameval), RandomMovement, Visuals::character(ch))
 }
 fn snowman() -> impl Bundle { basic_animal("snowman", '⛄') }
 fn sheep() -> impl Bundle { basic_animal("sheep", '🐑') }
@@ -774,10 +763,11 @@ fn player() -> impl Bundle {
    Combat { hp: 30,
             damage: 1,
             is_hostile: true },
-   Visuals::
+   Visuals::character('@')
    // SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('👿'))
   )
 }
+
 fn enemy() -> impl Bundle {
   (name("enemy"),
    EnemyMovement,
@@ -785,7 +775,8 @@ fn enemy() -> impl Bundle {
    Combat { hp: 30,
             damage: 1,
             is_hostile: true },
-   SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('👿')))
+   // SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('👿'))
+  )
 }
 
 fn spider() -> impl Bundle {
@@ -795,38 +786,42 @@ fn spider() -> impl Bundle {
    Combat { hp: 40,
             damage: 1,
             is_hostile: true },
-   SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('🕷')))
+   // SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('🕷'))
+  )
 }
 
 fn fire() -> impl Bundle {
   (name("fire"),
    Fire { dir: Dir::East },
-   SpaceObjectBundle::new(1.0, false, Visuals::character('🔥')))
+   // SpaceObjectBundle::new(1.0, false, Visuals::character('🔥'))
+  )
 }
-fn monster(name: &'static str, ch: char, hp: i32, dmg: i32) -> impl Bundle {
-  (Name(name), Char(ch), Combat { hp, dmg })
+fn monster(name: &'static str, ch: char, hp: u32, dmg: i32) -> impl Bundle {
+  (Char(ch),
+   Combat { hp,
+            damage: 3,
+            is_hostile: true })
 }
-fn block(name: &'static str, color: &str) -> impl Bundle {
-  (Name(name), Tile { bg: Color::hex(color).unwrap() })
-}
-fn craftsman(name: &'static str, ch: char, job: &'static str) -> impl Bundle {
-  (entity(name, ch), Job(job), Container)
-}
-fn mage(name: &'static str, ch: char, mana: i32) -> impl Bundle {
-  (monster(name, ch, 50, 5), Magic { mana })
-}
-fn gold_ore() -> impl Bundle { (block("gold ore", "FFD700"), Ore { value: 100 }) }
-fn farmland() -> impl Bundle { (block("farmland", "5A3A1A"), Grows(WHEAT)) }
-fn magma() -> impl Bundle {
-  (block("magma", "FF4500"), Fluid { flow: 0.5 }, Burns { temp: 2000 }, Light(8.0))
-}
+// fn block(name: &'static str, color: &str) -> impl Bundle {
+//   (Name(name), Tile { bg: Color::hex(color).unwrap() })
+// }
+// fn craftsman(name: &'static str, ch: char, job: &'static str) -> impl Bundle {
+//   (entity(name, ch), Job(job), Container)
+// }
+// fn mage(name: &'static str, ch: char, mana: i32) -> impl Bundle {
+//   (monster(name, ch, 50, 5), Magic { mana })
+// }
+// fn farmland() -> impl Bundle { (block("farmland", "5A3A1A"), Grows(WHEAT)) }
+// fn magma() -> impl Bundle {
+//   (block("magma", "FF4500"), Fluid { flow: 0.5 }, Burns { temp: 2000 }, Light(8.0))
+// }
 
 // Creature Templates
-fn dwarf() -> impl Bundle {
-  (craftsman("dwarf", '🧔', "miner"), Combat { hp: 100, dmg: 8 }, Digger { speed: 1.0 })
-}
+// fn dwarf() -> impl Bundle {
+//   (craftsman("dwarf", '🧔', "miner"), Combat { hp: 100, dmg: 8 }, Digger { speed: 1.0 })
+// }
 
-fn wizard() -> impl Bundle { mage("wizard", '🧙', 100) }
+// fn wizard() -> impl Bundle { mage("wizard", '🧙', 100) }
 fn dragon() -> impl Bundle {
   (name("dragon"),
    EnemyMovement,
@@ -835,29 +830,30 @@ fn dragon() -> impl Bundle {
    Combat { hp: 60,
             damage: 1,
             is_hostile: true },
-   SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('🐉')))
+   // SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('🐉'))
+  )
 }
-fn troll() -> impl Bundle { (monster("troll", '👹', 200, 30), Burns { temp: -10 }) }
-fn goblin() -> impl Bundle { (monster("goblin", '👺', 40, 8), Container) }
+// fn troll() -> impl Bundle { (monster("troll", '👹', 200, 30), Burns { temp: -10 }) }
+// fn goblin() -> impl Bundle { (monster("goblin", '👺', 40, 8), Container) }
 
 // Item Templates
-fn pickaxe() -> impl Bundle {
-  (entity("pickaxe", '⛏'), Tool { durability: 100 }, Craftable { skill: 5 })
-}
-fn wheat() -> impl Bundle { (entity("wheat", '🌾'), Grows(WHEAT_MATURE)) }
-fn wheat_mature() -> impl Bundle { (entity("mature wheat", '🌾'), Craftable { skill: 1 }) }
-fn potion() -> impl Bundle {
-  (entity("potion", '🧪'), Magic { mana: 50 }, Craftable { skill: 8 })
-}
-fn ring() -> impl Bundle { (entity("ring", '💍'), Magic { mana: 100 }, Light(3.0)) }
+// fn pickaxe() -> impl Bundle {
+//   (entity("pickaxe", '⛏'), Tool { durability: 100 }, Craftable { skill: 5 })
+// }
+// fn wheat() -> impl Bundle { (entity("wheat", '🌾'), Grows(WHEAT_MATURE)) }
+// fn wheat_mature() -> impl Bundle { (entity("mature wheat", '🌾'), Craftable { skill: 1 }) }
+// fn potion() -> impl Bundle {
+//   (entity("potion", '🧪'), Magic { mana: 50 }, Craftable { skill: 8 })
+// }
+// fn ring() -> impl Bundle { (entity("ring", '💍'), Magic { mana: 100 }, Light(3.0)) }
 
-// Machines/Workshops
-fn brewing_stand() -> impl Bundle {
-  (block("brewing stand", "8B4513"), Container, Craftable { skill: 3 })
-}
-fn anvil() -> impl Bundle {
-  (block("anvil", "4A4A4A"), Tool { durability: 1000 }, Craftable { skill: 10 })
-}
+// // Machines/Workshops
+// fn brewing_stand() -> impl Bundle {
+//   (block("brewing stand", "8B4513"), Container, Craftable { skill: 3 })
+// }
+// fn anvil() -> impl Bundle {
+//   (block("anvil", "4A4A4A"), Tool { durability: 1000 }, Craftable { skill: 10 })
+// }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
@@ -874,9 +870,7 @@ impl BlockTexture {
   pub const NUM: usize = variant_count::<Self>();
 }
 impl From<u8> for BlockTexture {
-  fn from(index: u8) -> Self {
-    unsafe { std::mem::transmute(index) }
-  }
+  fn from(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
 }
 impl From<BlockTexture> for u8 {
   fn from(block_texture: BlockTexture) -> u8 { block_texture as u8 }
@@ -907,9 +901,7 @@ impl BlockType {
   pub const NUM: usize = variant_count::<Self>();
 }
 impl From<u8> for BlockType {
-  fn from(index: u8) -> Self {
-    unsafe { std::mem::transmute(index) }
-  }
+  fn from(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
 }
 impl From<BlockType> for u8 {
   fn from(block_type: BlockType) -> u8 { block_type as u8 }
@@ -918,122 +910,261 @@ impl From<BlockType> for u32 {
   fn from(block_type: BlockType) -> u32 { block_type as u32 }
 }
 
-impl BlockType {
-    pub fn is_solid(&self) -> bool {
-        match self {
-            BlockType::Air => false,
-            _ => true,
-        }
-    }
-    pub fn is_mineable(&self) -> bool {
-        matches!(self, BlockType::Stone | BlockType::Dirt | BlockType::Sand)
-    }
-}
-#[derive(Resource)]
-pub struct GameWorld {
-    blocks: HashMap<IVec3, BlockType>,
-    entities: HashMap<IVec3, Vec<Entity>>,
-}
+// enum WorldLocationKind{
+//   Wall,Floor,Air
+// }
 
-impl Default for GameWorld {
-    fn default() -> Self {
-        Self {
-            blocks: HashMap::new(),
-            entities: HashMap::new(),
-        }
-    }
-}
-
-impl GameWorld {
-    pub fn set_block(&mut self, pos: IVec3, block: BlockType) {
-        match block {
-            BlockType::Air => { self.blocks.remove(&pos); }
-            _ => { self.blocks.insert(pos, block); }
-        }
-    }
-
-    pub fn get_block(&self, pos: IVec3) -> BlockType {
-        self.blocks.get(&pos).copied().unwrap_or(BlockType::Air)
-    }
-
-    pub fn is_walkable(&self, pos: IVec3) -> bool {
-        !self.get_block(pos).is_solid()
-    }
-
-    // Entity position tracking
-    pub fn move_entity(&mut self, entity: Entity, from: IVec3, to: IVec3) {
-        // Remove from old position
-        if let Some(entities) = self.entities.get_mut(&from) {
-            entities.retain(|&e| e != entity);
-            if entities.is_empty() {
-                self.entities.remove(&from);
-            }
-        }
-
-        // Add to new position
-        self.entities.entry(to)
-            .or_insert_with(Vec::new)
-            .push(entity);
-    }
-
-    pub fn get_entities_at(&self, pos: IVec3) -> &[Entity] {
-        self.entities.get(&pos).map(|v| v.as_slice()).unwrap_or(&[])
-    }
-}
-
-// Simple component for moving entities
-#[derive(Component)]
-pub struct Position(pub IVec3);
-
-// System to sync positions with world state
-pub fn sync_positions(
-    mut world: ResMut<GameWorld>,
-    query: Query<(Entity, &Position), Changed<Position>>,
-) {
-    for (entity, pos) in query.iter() {
-        // We only track the current position, no need to store old one
-        world.move_entity(entity, pos.0, pos.0);
-    }
-}
-
-// Simple movement system example
-pub fn move_entities(
-    world: Res<GameWorld>,
-    mut query: Query<(&mut Position, &Movement)>,
-    time: Res<Time>,
-) {
-    for (mut pos, movement) in query.iter_mut() {
-        let target = pos.0 + movement.direction;
-        if world.is_walkable(target) {
-            pos.0 = target;
-        }
-    }
-}
-
-// Plugin to organize everything
-pub struct GamePlugin;
-
-impl Plugin for GamePlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<GameWorld>()
-           .add_systems(Update, (
-               sync_positions,
-               move_entities,
-           ));
-    }
-}
-
-
-#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Component, Copy, Clone, Debug, Default)]
+#[component(storage = "SparseSet")]
+pub struct NewBlock;
+#[derive(Component, Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
+#[component(storage = "SparseSet")]
 pub struct Location(pub IVec3);
 impl Location {
-  pub fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
+  pub const fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
+}
+impl From<Location> for Vec3 {
+  fn from(Location(ivec3): Location) -> Self { ivec3.as_vec3() }
+}
+impl From<Location> for Transform {
+  fn from(loc: Location) -> Self { Transform::from_translation(loc.into()) }
+}
 
-  pub fn manhattan_distance(&self, other: &Location) -> i32 {
-    let diff = self.0 - other.0;
-    diff.x.abs() + diff.y.abs() + diff.z.abs()
+#[derive(Default, Resource)]
+pub struct WorldLocationMap {
+  blocks: HashMap<Location, BlockType>,
+  player_loc: Option<Location>,
+  entities: HashMap<Location, HashSet<Entity>>,
+  entity_positions: HashMap<Entity, Location>
+}
+
+impl WorldLocationMap {
+  fn cube_positions(center: Location,
+                    radius: i32,
+                    include_center: bool)
+                    -> impl Iterator<Item = Location> {
+    let r = radius;
+    (-r..=r).flat_map(move |dx| {
+              (-r..=r).flat_map(move |dy| {
+                        (-r..=r).filter_map(move |dz| {
+                                  let pos = IVec3::new(dx, dy, dz);
+                                  (include_center || pos != IVec3::ZERO).then_some(
+                                    Location(center.0 + pos)
+                                    )
+                                })
+                      })
+            })
+  }
+
+  pub fn get_block(&self, loc: Location) -> Option<BlockType> {
+    self.blocks.get(&loc).copied()
+  }
+  pub fn get_loc(&self, entity: Entity) -> Option<Location> {
+    self.entity_positions.get(&entity).copied()
+  }
+  pub fn get_entities_at(&self, loc: Location) -> impl Iterator<Item = Entity> + '_ {
+    self.entities.get(&loc).into_iter().flatten().copied()
+  }
+
+  pub fn get_entities_adjacent(&self, entity: Entity) -> Vec<Entity> {
+    self.get_loc(entity)
+        .map(|loc| {
+          Self::cube_positions(loc, 1, false).flat_map(|p| self.get_entities_at(p))
+                                             .collect()
+        })
+        .unwrap_or_default()
+  }
+  pub fn get_entity_distance(&self, a: Entity, b: Entity) -> Option<i32> {
+    let pos_a = self.entity_positions.get(&a)?.0;
+    let pos_b = self.entity_positions.get(&b)?.0;
+    let diff = pos_a - pos_b;
+    Some(diff.x.abs().max(diff.y.abs()).max(diff.z.abs()))
+  }
+  pub fn are_adjacent(&self, a: Entity, b: Entity) -> bool {
+    self.get_entity_distance(a, b).map_or(false, |d| d == 1)
+  }
+
+  pub fn get_player_loc(&self) -> Option<Location> { self.player_loc }
+}
+
+pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
+                          mut playerq: Query<&Location, With<Player>>,
+                          added: Query<(Entity, &Location, Option<&BlockType>),
+                                Added<Location>>,
+                          mut removed_locs: RemovedComponents<Location>,
+                          moved: Query<(Entity, &Location), Changed<Location>>,
+                          mut voxel_world: VoxelWorld<MyMainWorld>) {
+  let WorldLocationMap { blocks,
+                         entities,
+                         player_loc,
+                         entity_positions } = world_locs.as_mut();
+  *player_loc = playerq.iter().next().copied();
+  // Handle new/added entities
+  for (e, &loc, block_type) in &added {
+    if let Some(&bt) = block_type {
+      blocks.insert(loc, bt);
+      voxel_world.set_voxel(loc.0, bt.into());
+    }
+    entities.entry(loc).or_default().insert(e);
+    entity_positions.insert(e, loc);
+  }
+
+  // Handle removed entities/blocks
+  for e in removed_locs.read() {
+    if let Some(loc) = entity_positions.remove(&e)
+       && let Some(entity_set) = entities.get_mut(&loc)
+    {
+      entity_set.remove(&e);
+      if entity_set.is_empty() {
+        entities.remove(&loc);
+      }
+      if blocks.remove(&loc).is_some() {
+        voxel_world.set_voxel(loc.0, WorldVoxel::Air);
+      }
+    }
+  }
+
+  // Handle moved entities/blocks
+  for (e, &new_loc) in &moved {
+    if let Some(old_loc) = entity_positions.get(&e).copied()
+       && let Some(entity_set) = entities.get_mut(&old_loc)
+    {
+      entity_set.remove(&e);
+      if entity_set.is_empty() {
+        entities.remove(&old_loc);
+      }
+      if blocks.remove(&old_loc).is_some() {
+        voxel_world.set_voxel(old_loc.0, WorldVoxel::Air);
+      }
+    }
+    entities.entry(new_loc).or_default().insert(e);
+    entity_positions.insert(e, new_loc);
+
+    if let Some(bt) = blocks.get(&new_loc).copied() {
+      voxel_world.set_voxel(new_loc.0, bt.into());
+    }
   }
 }
+
+comment! {
+  pub fn sync_locations(mut world_locs: ResMut<WorldLocationMap>,
+                        mut addedq: Query<(Entity, &Location, Option<&BlockType>),
+                                          Added<Location>>,
+                        mut removedq: RemovedComponents<Location>,
+                        movedq: Query<(Entity, &Location), Changed<Location>>,
+                        newblocksq: Query<(Entity, &Location, &BlockType), With<NewBlock>>,
+                        removedblocksq: RemovedComponents<BlockType>,
+                        mut voxel_world: VoxelWorld<MyMainWorld>) {
+    let WorldLocationMap { blocks,
+                           entities,
+                           entity_positions } = world_locs.as_mut();
+    let add_to_loc = |e, loc| {
+      entities.entry(loc).or_default().insert(e);
+      entity_positions.insert(e, loc);
+    };
+    for (e, &loc, obt) in &addedq {
+      if let Some(&bt) = obt {
+        blocks.insert(loc, bt);
+      }
+      add_to_loc(e, loc);
+    }
+    let remove_from_loc = |e| {
+      if let Some(loc) = entity_positions.remove(&e)
+        && let Some(entityset) = entities.get_mut(&loc)
+      {
+        entityset.remove(&e);
+        if entityset.is_empty() {
+          entities.remove(&loc);
+        }
+      }
+    };
+    for e in removedq.read() {
+      if let Some(&old_loc) = entity_positions.get(&e) {
+        blocks.get(&old_loc)
+      }
+      remove_from_loc(e);
+    }
+    for blockentity in &removedblocksq {
+      blocks.remove();
+    }
+    // Handle moved entities
+    for (entity, location) in &movedq {
+      // Remove from old position if it exists
+      remove_from_loc(e);
+      // Add to new position
+      add_to_loc(e, loc);
+    }
+  }
+}
+
+fn maintain_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>,
+                        mut world_locs: ResMut<WorldLocationMap>) {
+  // Then we can use the `u8` consts to specify the type of voxel
+
+  // 20 by 20 floor
+  for x in -10..10 {
+    for z in -10..10 {
+      voxel_world.set_voxel(IVec3::new(x, -1, z), BlockType::Snow.into());
+      // Grassy floor
+    }
+  }
+
+  // Some bricks
+  voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
+  voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
+  voxel_world.set_voxel(IVec3::new(1, 0, 0), BlockType::Snow.into());
+  voxel_world.set_voxel(IVec3::new(0, 0, 1), BlockType::Snow.into());
+  voxel_world.set_voxel(IVec3::new(0, 0, -1), BlockType::Stone.into());
+  voxel_world.set_voxel(IVec3::new(-1, 0, 0), BlockType::Stone.into());
+  voxel_world.set_voxel(IVec3::new(-2, 0, 0), BlockType::Sand.into());
+  voxel_world.set_voxel(IVec3::new(-1, 1, 0), BlockType::Bricks.into());
+  voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
+  voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
+}
+fn player_movement(// mut camq: Query<&mut PanOrbitCamera>,
+                   // world_locs: Res<WorldLocationMap>,
+                   keys: Res<ButtonInput<KeyCode>>,
+                   mut player_query: Query<&mut Location, With<Player>> // targetq: Query<&Pos, With<CameraTarget>>
+) {
+  let key_dir = |key: KeyCode| match key {
+    KeyCode::KeyW => IVec3::Z,
+    KeyCode::KeyA => IVec3::X,
+    KeyCode::KeyS => IVec3::NEG_Z,
+    KeyCode::KeyD => IVec3::NEG_X,
+    KeyCode::ShiftLeft => IVec3::Y,
+    KeyCode::ControlLeft => IVec3::NEG_Y,
+    _ => IVec3::ZERO
+  };
+  if let Some(&key) = keys.get_just_pressed().nth(0)
+     && let Ok(mut player_pos) = player_query.get_single_mut()
+  {
+    player_pos.0 += key_dir(key);
+  }
+}
+fn camera_movement(mut camq: Query<&mut PanOrbitCamera>,
+                   world_locs: Res<WorldLocationMap>,
+                   player_query: Query<Entity, With<Player>>,
+                   targetq: Query<&Location, With<CameraTarget>>) {
+  if let Some(player_pos) = world_locs.get_player_loc()
+     && let Ok(mut cam) = camq.get_single_mut()
+  {
+    cam.target_focus = player_pos.0.as_vec3();
+  }
+}
+
+const ADD_ONE: fn(i32) -> i32 = |x| x + 1;
+
+// Simple movement system example
+// pub fn move_entities(world: Res<WorldLocationMap>,
+//                      mut query: Query<(&mut Position, &Movement)>,
+//                      time: Res<Time>) {
+//   for (mut pos, movement) in query.iter_mut() {
+//     let target = pos.0 + movement.direction;
+//     if world.is_walkable(target) {
+//       pos.0 = target;
+//     }
+//   }
+// }
 
 #[derive(Clone)]
 enum Tile {
@@ -1044,337 +1175,14 @@ enum Tile {
     entities: Vec<Entity>
   }
 }
-#[derive(Default, Resource)]
-struct Blocks(HashMap<IVec3, BlockType>);
-#[derive(Resource)]
-pub struct BlockWorld {
-  blocks: HashMap<IVec3, Tile>,
-  // Cache of entities by position for quick lookups
-  position_cache: HashMap<Entity, IVec3>
-}
 
-// System to keep Location components in sync with WorldMap
-pub fn sync_entity_locations(mut commands: Commands,
-                             mut world_map: ResMut<WorldMap>,
-                             mut moved_query: Query<(Entity, &mut Location),
-                                   Changed<Location>>) {
-  for (entity, mut location) in moved_query.iter_mut() {
-    let old_pos = location.0;
-    // Remove from old position
-    world_map.remove_entity(old_pos, entity);
-    // Add to new position if it's walkable
-    if world_map.is_walkable(location.0) {
-      world_map.add_entity(location.0, entity);
-    } else {
-      // If the new position isn't walkable, revert the location
-      location.0 = old_pos;
-      world_map.add_entity(old_pos, entity);
-    }
-  }
-}
-
-// System to cleanup entities when they're despawned
-pub fn cleanup_despawned_entities(mut world_map: ResMut<WorldMap>,
-                                  removed_entities: RemovedComponents<Location>,
-                                  query: Query<&Location>) {
-  for entity in removed_entities.iter() {
-    // We only need to cleanup if the entity had a Location
-    if let Ok(location) = query.get(entity) {
-      world_map.remove_entity(location.0, entity);
-    }
-  }
-}
-
-// Helper system to ensure Transform and Location stay in sync
-pub fn sync_transforms(mut query: Query<(&Transform, &mut Location), Changed<Transform>>) {
-  for (transform, mut location) in query.iter_mut() {
-    location.0 = IVec3::new(transform.translation.x as i32,
-                            transform.translation.y as i32,
-                            transform.translation.z as i32);
-  }
-}
-
-// Plugin to organize all the systems
-#[derive(Default)]
-pub struct WorldPlugin;
-
-impl Plugin for WorldPlugin {
-  fn build(&self, app: &mut App) {
-    app.init_resource::<WorldMap>()
-           .add_systems(Update, (
-               sync_entity_locations,
-               cleanup_despawned_entities,
-               sync_transforms,
-           ).chain());
-  }
-}
-
-// Example usage in game code:
-fn spawn_entity(commands: &mut Commands, pos: IVec3, world_map: &mut WorldMap) -> Entity {
-  // Only spawn if the position is walkable
-  if !world_map.is_walkable(pos) {
-    panic!("Attempted to spawn entity in non-walkable position");
+comment! {
+  fn furniture(mat: Material, kind: Furniture) -> impl Bundle {
+    (Tile::Furniture(kind, mat), Furniture)
   }
 
-  let entity = commands.spawn((
-    Location(pos),
-    Transform::from_translation(Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32)) // ... other components
-  ))
-                       .id();
-
-  world_map.add_entity(pos, entity);
-  entity
-}
-
-#[derive(Component)]
-struct Furniture;
-fn furniture(mat: Material, kind: Furniture) -> impl Bundle {
-  (Tile::Furniture(kind, mat), Furniture)
-}
-
-fn forge(mat: Material) -> impl Bundle {
-  (name("forge"), Tile::Furniture(Furniture::Forge, mat), Container(vec![]), Quality(0))
-}
-
-impl Default for BlockWorld {
-  fn default() -> Self {
-    Self { blocks: HashMap::new(),
-           position_cache: HashMap::new() }
-  }
-}
-
-// Spatial relationship queries
-impl BlockWorld {
-  pub fn new() -> Self { Self { blocks: HashMap::new() } }
-  pub fn set_block(&mut self, pos: IVec3, material: Material) {
-    self.blocks.insert(pos, Tile::Solid(material));
-  }
-  pub fn set_furniture(&mut self, pos: IVec3, furniture: Furniture, material: Material) {
-    self.blocks
-        .insert(pos, Tile::Furniture(furniture, material));
-  }
-  pub fn remove_block(&mut self, pos: IVec3) {
-    if let Some(Tile::Open(entities)) = self.blocks.get(&pos) {
-      // If it was an open tile with entities, preserve the entities
-      self.blocks.insert(pos, Tile::Open(entities.clone()));
-    } else {
-      self.blocks.insert(pos, Tile::Open(Vec::new()));
-    }
-  }
-  pub fn add_entity(&mut self, pos: IVec3, entity: Entity) {
-    match self.blocks.get_mut(&pos) {
-      Some(Tile::Open(entities)) => {
-        if !entities.contains(&entity) {
-          entities.push(entity);
-        }
-      }
-      Some(_) => {
-        warn!("Attempted to add entity to non-open tile at {:?}", pos);
-      }
-      None => {
-        self.blocks.insert(pos, Tile::Open(vec![entity]));
-      }
-    }
-  }
-  pub fn remove_entity(&mut self, pos: IVec3, entity: Entity) {
-    if let Some(Tile::Open(entities)) = self.blocks.get_mut(&pos) {
-      entities.retain(|&e| e != entity);
-    }
-  }
-  pub fn get_tile(&self, pos: IVec3) -> Option<&Tile> { self.blocks.get(&pos) }
-  pub fn is_walkable(&self, pos: IVec3) -> bool {
-    match self.blocks.get(&pos) {
-      Some(Tile::Open(_)) => true,
-      _ => false
-    }
-  }
-
-  pub fn get_entities_at(&self, pos: IVec3) -> Vec<Entity> {
-    match self.blocks.get(&pos) {
-      Some(Tile::Open(entities)) => entities.clone(),
-      _ => Vec::new()
-    }
-  }
-  // Core position queries
-  pub fn get_position(&self, entity: Entity) -> Option<IVec3> {
-    self.position_cache.get(&entity).copied()
-  }
-
-  pub fn get_entities_at(&self, pos: IVec3) -> Vec<Entity> {
-    match self.blocks.get(&pos) {
-      Some(Tile::Open(entities)) => entities.clone(),
-      _ => Vec::new()
-    }
-  }
-
-  pub fn is_walkable(&self, pos: IVec3) -> bool {
-    matches!(self.blocks.get(&pos), Some(Tile::Open(_)))
-  }
-
-  pub fn get_material_at(&self, pos: IVec3) -> Option<Material> {
-    match self.blocks.get(&pos) {
-      Some(Tile::Solid(mat)) => Some(*mat),
-      Some(Tile::Furniture(_, mat)) => Some(*mat),
-      _ => None
-    }
-  }
-
-  // Adjacency helpers
-  pub fn get_adjacent_positions(&self, pos: IVec3) -> Vec<IVec3> {
-    const DIRECTIONS: [IVec3; 6] = [IVec3::X,
-                                    -IVec3::X,
-                                    IVec3::Y,
-                                    -IVec3::Y,
-                                    IVec3::Z,
-                                    -IVec3::Z];
-    DIRECTIONS.iter().map(|dir| pos + *dir).collect()
-  }
-
-  pub fn get_adjacent_entities(&self, pos: IVec3) -> Vec<Entity> {
-    self.get_adjacent_positions(pos)
-        .iter()
-        .flat_map(|adj_pos| self.get_entities_at(*adj_pos))
-        .collect()
-  }
-
-  // Advanced spatial queries
-  pub fn find_entities_in_radius(&self, center: IVec3, radius: i32) -> Vec<Entity> {
-    let mut result = Vec::new();
-    for x in -radius..=radius {
-      for y in -radius..=radius {
-        for z in -radius..=radius {
-          let pos = center + IVec3::new(x, y, z);
-          if Location(center).manhattan_distance(&Location(pos)) <= radius {
-            result.extend(self.get_entities_at(pos));
-          }
-        }
-      }
-    }
-    result
-  }
-
-  pub fn find_reachable_positions(&self, start: IVec3, max_distance: i32) -> HashSet<IVec3> {
-    let mut visited = HashSet::new();
-    let mut queue = vec![start];
-    visited.insert(start);
-
-    while let Some(pos) = queue.pop() {
-      if Location(start).manhattan_distance(&Location(pos)) >= max_distance {
-        continue;
-      }
-
-      for adj_pos in self.get_adjacent_positions(pos) {
-        if self.is_walkable(adj_pos) && !visited.contains(&adj_pos) {
-          visited.insert(adj_pos);
-          queue.push(adj_pos);
-        }
-      }
-    }
-    visited
-  }
-}
-
-// High-level spatial relationship queries
-pub struct SpatialQueries;
-
-impl SpatialQueries {
-  // Find entities with components that are adjacent to a position
-  pub fn find_adjacent<T: Component>(world: &BlockWorld,
-                                     pos: IVec3,
-                                     query: &Query<(Entity, &Location, &T)>)
-                                     -> Vec<(Entity, &T)> {
-    let adjacent_positions: HashSet<_> =
-      world.get_adjacent_positions(pos).into_iter().collect();
-    query.iter()
-         .filter(|(_, loc, _)| adjacent_positions.contains(&loc.0))
-         .map(|(entity, _, component)| (entity, component))
-         .collect()
-  }
-
-  // Find the nearest entity with a specific component
-  pub fn find_nearest<T: Component>(world: &BlockWorld,
-                                    from: IVec3,
-                                    query: &Query<(Entity, &Location, &T)>)
-                                    -> Option<(Entity, &T, i32)> {
-    query.iter()
-         .map(|(entity, loc, component)| {
-           (entity, component, Location(from).manhattan_distance(&loc))
-         })
-         .min_by_key(|&(_, _, dist)| dist)
-  }
-
-  // Check if two entities are adjacent
-  pub fn are_adjacent(world: &BlockWorld, entity1: Entity, entity2: Entity) -> bool {
-    let pos1 = world.get_position(entity1)?;
-    let pos2 = world.get_position(entity2)?;
-    Location(pos1).manhattan_distance(&Location(pos2)) == 1
-  }
-}
-
-// Systems to maintain spatial relationships
-pub fn sync_locations(mut world: ResMut<BlockWorld>,
-                      mut commands: Commands,
-                      mut moved_query: Query<(Entity, &Location), Changed<Location>>) {
-  for (entity, location) in moved_query.iter() {
-    if let Some(old_pos) = world.position_cache.get(&entity) {
-      world.remove_entity(*old_pos, entity);
-    }
-
-    if world.is_walkable(location.0) {
-      world.add_entity(location.0, entity);
-      world.position_cache.insert(entity, location.0);
-    }
-  }
-}
-
-// Example spatial relationship components
-#[derive(Component)]
-pub struct RequiresAdjacent<T: Component> {
-  _phantom: std::marker::PhantomData<T>
-}
-
-#[derive(Component)]
-pub struct RequiresNearby<T: Component> {
-  radius: i32,
-  _phantom: std::marker::PhantomData<T>
-}
-
-// Example system using spatial relationships
-pub fn check_spatial_requirements(world: Res<BlockWorld>,
-                                  query_requires_adjacent: Query<(Entity,
-                                         &Location,
-                                         &RequiresAdjacent<T>)>,
-                                  query_component: Query<(Entity, &Location, &T)>) {
-  for (entity, location, _requirement) in query_requires_adjacent.iter() {
-    let adjacent = SpatialQueries::find_adjacent(&world, location.0, &query_component);
-    if adjacent.is_empty() {
-      // Handle case where required adjacent entity is missing
-      // e.g., disable crafting, stop growth, etc.
-    }
-  }
-}
-
-// Example usage:
-fn spawn_with_spatial_requirement(commands: &mut Commands,
-                                  pos: IVec3,
-                                  world: &mut BlockWorld) {
-  // Spawn an entity that requires an adjacent Craftable
-  let entity = commands.spawn((Location(pos),
-                       RequiresAdjacent::<Craftable> { _phantom:
-                                                         std::marker::PhantomData }))
-               .id();
-
-  world.add_entity(pos, entity);
-}
-
-// Plugin to organize all spatial systems
-#[derive(Default)]
-pub struct SpatialPlugin;
-
-impl Plugin for SpatialPlugin {
-  fn build(&self, app: &mut App) {
-    app.init_resource::<BlockWorld>()
-       .add_systems(Update, (sync_locations, check_spatial_requirements));
+  fn forge(mat: Material) -> impl Bundle {
+    (name("forge"), Tile::Furniture(Furniture::Forge, mat), Container(vec![]), Quality(0))
   }
 }
 
@@ -1466,14 +1274,6 @@ fn avg<T: std::iter::Sum + std::ops::Div<f32, Output = T>>(coll: impl IntoIterat
   (n != 0).then(|| s / (n as f32))
 }
 
-fn camera_movement(mut camq: Query<&mut PanOrbitCamera>,
-                   targetq: Query<&Pos, With<CameraTarget>>) {
-  if let Ok(camera_target_pos) = targetq.get_single()
-     && let Ok(mut cam) = camq.get_single_mut()
-  {
-    cam.target_focus = camera_target_pos.into();
-  }
-}
 #[derive(Component, Debug, Clone, Copy, new)]
 pub struct Navigation {
   max_speed: f32,
@@ -1604,18 +1404,16 @@ fn ui(mut c: Commands,
   }
   if let Ok((player_entity, player, player_transform)) = playerq.get_single() {
     let player_pos = player_transform.translation;
-    let player_light_on = player.light_on;
-    let infobox_data =
-      map(ToString::to_string,
-          [format!("{:.1}", player_pos).as_str(),
-           format!("you've found {} notes", player.notes_found.len()).as_str(),
-           format!("light on: {player_light_on}",).as_str(),
-           "w,a,s,d: move",
-           "f: toggle flashlight"]) // .chain(map(|(item, n)| {
-                                   //              format!("{} {:?}s", n, item)
-                                   //            },
-                                   //            player_inventory.0.clone()))
-                                   .collect();
+    // let player_light_on = player.light_on;
+    let infobox_data = map(ToString::to_string, [format!("{:.1}", player_pos).as_str(),
+                                                 // format!("you've found {} notes", player.notes_found.len()).as_str(),
+                                                 // format!("light on: {player_light_on}",).as_str(),
+                                                 "w,a,s,d: move",
+                                                 "f: toggle flashlight"]) // .chain(map(|(item, n)| {
+                                                                         //              format!("{} {:?}s", n, item)
+                                                                         //            },
+                                                                         //            player_inventory.0.clone()))
+                                                                         .collect();
 
     let current_time = time.0;
     let current_time_ticks = current_time;
@@ -1759,7 +1557,7 @@ const NOTE_FIND_RANGE: f32 = 1.8;
 fn note(translation: Vec3, note_data: &'static str) -> impl Bundle {
   (Visuals::sprite(MySprite::NOTE),
    Note(note_data),
-   Proximal { distance: NOTE_FIND_RANGE },
+   // Proximal { distance: NOTE_FIND_RANGE },
    SpatialBundle { transform: Transform { translation,
                                           rotation:
                                             (Quat::from_rotation_y(avian3d::math::PI * 0.2)
@@ -1781,8 +1579,8 @@ type NumberFunction = fn(i32) -> i32;
 
 const INC: NumberFunction = |x| x + 1;
 
-#[derive(Component, Debug)]
-struct Player {}
+#[derive(Component, Debug, Default)]
+pub struct Player {}
 
 #[derive(Component, Debug)]
 pub struct CameraTarget;
@@ -1791,7 +1589,11 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
              mut c: Commands) {
-  c.spawn((Pos::default(), CameraTarget));
+  c.spawn((Location::default(), CameraTarget));
+  c.spawn((Location::default(), Player::default()));
+  c.spawn((Location::new(5, 5, 5), Visuals::sprite(MySprite::COFFEE)));
+  c.spawn((Location::new(5, 4, 5), Visuals::sprite(MySprite::COFFEE)));
+  c.spawn((Location::new(5, 3, 5), Visuals::sprite(MySprite::COFFEE)));
   let fov = std::f32::consts::PI / 4.0;
 
   let pitch_upper_limit_radians = 1.0;
@@ -1911,19 +1713,22 @@ impl VoxelWorldConfig for MyMainWorld {
   fn texture_index_mapper(&self) -> Arc<dyn Fn(u8) -> [u32; 3] + Send + Sync> {
     // WorldVoxel
     Arc::new(|vox_mat: u8| {
-      let block_type = BlockType::from_index(vox_mat);
+      let block_type = BlockType::from(vox_mat);
       let textures = block_type.textures();
-      let texture_indexes = textures.map(BlockTexture::to_u32);
+      let texture_indexes = textures.map(Into::into);
       texture_indexes
     })
   }
   fn voxel_texture(&self) -> Option<(String, u32)> {
-    Some(("block_textures.png".into(), BlockTexture::NUM as u32))
+    Some((
+      "block_textures.png".into(),
+      11 // BlockTexture::NUM as u32
+    ))
   }
 }
 
 impl From<BlockType> for WorldVoxel {
-  fn from(block_type: BlockType) -> Self { WorldVoxel::Solid(block_type.to_index()) }
+  fn from(block_type: BlockType) -> Self { WorldVoxel::Solid(u8::from(block_type)) }
 }
 fn create_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>) {
   // Then we can use the `u8` consts to specify the type of voxel
@@ -2481,8 +2286,9 @@ pub fn main() {
 
     .init_state::<GameState>()
     .init_resource::<UIData>()
-    .init_resource::<GameOver>()
+    // .init_resource::<GameOver>()
     .init_resource::<TimeTicks>()
+    .init_resource::<WorldLocationMap>()
     .insert_resource(gravity)
     .insert_resource(solver_config)
     .insert_resource(ClearColor(mycolor::CLEAR))
@@ -2490,11 +2296,13 @@ pub fn main() {
     .insert_resource(Msaa::Sample4)
     .add_systems(Startup, (setup,create_voxel_scene
     ).chain())
+
     .add_systems(Update,(
+      sync_locations_new,
       close_on_esc,
       // toggle_flashlight,
       // navigation,
-      // player_movement,
+      player_movement,
       // monster_movement,
       camera_movement,
       increment_time,
@@ -2502,7 +2310,7 @@ pub fn main() {
       timed_animation_system,
     ).chain())
     .add_systems(Update,(
-      face_camera,
+      position_sprite_billboards,
       // proximity_system,
       visuals,
       ui,
