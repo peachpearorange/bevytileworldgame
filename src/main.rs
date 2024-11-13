@@ -23,21 +23,18 @@
 // pub mod ui;
 mod dialogue;
 mod mycommand;
-use {dialogue::Dialogue, enum_assoc};
 
-use bevy::ecs::query::ArchetypeFilter;
 // use crate::dialogue::DialogueTree
-pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
             core_pipeline::bloom::{BloomCompositeMode, BloomPrefilterSettings,
                                    BloomSettings},
-            math::{primitives, vec3},
+            math::primitives,
             pbr::StandardMaterial,
-            prelude::*,
+            prelude::{Name, *},
             render::texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor},
-            utils::{HashMap, HashSet},
+            utils::{EntityHashMap, HashMap, HashSet},
             window::WindowMode},
      bevy_embedded_assets::*,
      bevy_panorbit_camera::PanOrbitCamera,
@@ -47,7 +44,6 @@ use {avian3d::prelude::*,
      dynamics::solver::SolverConfig,
      enum_assoc::Assoc,
      fancy_constructor::new,
-     mycommand::MyCommand,
      rand::{random, thread_rng},
      rust_utils::*,
      std::{f32::consts::PI, mem::variant_count, sync::Arc}};
@@ -56,7 +52,6 @@ use {avian3d::prelude::*,
 mod mycolor {
   use bevy::color::Color;
 
-  pub const AMBIENT_LIGHT: Color = Color::hsv(301.0, 1.0, 1.0);
   pub const CLEAR: Color = Color::hsv(301.0, 1.0, 0.07);
 
   pub const GLOWY: Color = Color::srgb(13.99, 11.32, 50.0);
@@ -453,23 +448,36 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
 #[derive(Component, Clone)]
 struct FaceCamera;
 pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
-                                  mut camera_facers_q: Query<(&Location, &mut Transform),
+                                  time: ResMut<TimeTicks>,
+                                  mut frame_timestamp: ResMut<FrameTimeStamp>,
+                                  mut frames_done: Local<u32>,
+                                  mut billboardsq: Query<(Entity,
+                                         &Location,
+                                         &mut Transform),
                                         (With<Visuals>,
-                                         Without<Camera3d>)>) {
+                                         Without<Camera3d>)>,
+                                  mut billboards_loc_cache: Local<HashMap<Entity,
+                                                Location>>) {
+  // a frame every TICK_TIME ticks
+  let time_since = time.0 - frame_timestamp.0;
+  if time_since == TICK_TIME as u32 - 1 {
+    *frames_done = 0;
+    *billboards_loc_cache = default();
+    billboards_loc_cache.extend(billboardsq.iter().map(|(e, &loc, _)| (e, loc)));
+  }
   if let Ok(cam_transform) = camq.get_single() {
-    for (&loc, mut transform) in &mut camera_facers_q {
+    for (e, &loc, mut transform) in &mut billboardsq {
       let dir = Vec3 { y: 0.0,
                        ..(transform.translation - cam_transform.translation) };
-      *transform = Transform::from(loc).looking_to(dir, Vec3::Y);
+      let prev_loc = billboards_loc_cache.get(&e).copied().unwrap_or(loc);
+      let translation =
+        Vec3::from(prev_loc).lerp(Vec3::from(loc),
+                                  (time_since as f32 / TICK_TIME as f32).min(1.0))
+        + Vec3::splat(0.5);
+      *transform = Transform::from_translation(translation).looking_to(dir, Vec3::Y);
     }
   }
 }
-// #[derive(Component, Default, Clone, Copy, Debug)]
-// struct Pos(pub IVec3);
-
-// impl From<Pos> for Vec3 {
-//   fn from(Pos(iv): Pos) -> Self { iv.as_vec3() }
-// }
 
 fn block_entity(loc: Location, block_type: BlockType) -> impl Bundle {
   (loc, block_type, NewBlock)
@@ -674,17 +682,6 @@ enum Material {
   Dirt
 }
 
-#[derive(Clone)]
-enum Item {
-  Raw(Material),
-  Block(Material),
-  Furniture { mat: Material, kind: Furniture },
-  Tool { mat: Material, kind: Tool },
-  Weapon { mat: Material, kind: Weapon },
-  Gem(Gem),
-  Misc(MiscItem)
-}
-
 #[derive(Clone, Copy)]
 enum Tool {
   Pickaxe,
@@ -697,6 +694,17 @@ enum Weapon {
   Bow,
   Spear
 }
+#[derive(Clone)]
+enum Item {
+  Raw(Material),
+  Block(Material),
+  Furniture { mat: Material, kind: Furniture },
+  Tool { mat: Material, kind: Tool },
+  Weapon { mat: Material, kind: Weapon },
+  Gem(Gem),
+  Misc(MiscItem)
+}
+
 fn make_tool(mat: Material, kind: Tool) -> Item { Item::Tool { mat, kind } }
 
 fn make_weapon(mat: Material, kind: Weapon) -> Item { Item::Weapon { mat, kind } }
@@ -749,6 +757,9 @@ struct Flying;
 
 fn basic_animal(nameval: &'static str, ch: char) -> impl Bundle {
   (name(nameval), RandomMovement, Visuals::character(ch))
+}
+fn basic_npc(loc: Location, nameval: &'static str, spr: MySprite) -> impl Bundle {
+  (loc, name(nameval), RandomMovement, Visuals::sprite(spr))
 }
 fn snowman() -> impl Bundle { basic_animal("snowman", '⛄') }
 fn sheep() -> impl Bundle { basic_animal("sheep", '🐑') }
@@ -926,6 +937,9 @@ impl Location {
 impl From<Location> for Vec3 {
   fn from(Location(ivec3): Location) -> Self { ivec3.as_vec3() }
 }
+impl From<Vec3> for Location {
+  fn from(value: Vec3) -> Self { Self((value + Vec3::splat(0.5)).as_ivec3()) }
+}
 impl From<Location> for Transform {
   fn from(loc: Location) -> Self { Transform::from_translation(loc.into()) }
 }
@@ -943,17 +957,18 @@ impl WorldLocationMap {
                     radius: i32,
                     include_center: bool)
                     -> impl Iterator<Item = Location> {
-    let r = radius;
-    (-r..=r).flat_map(move |dx| {
-              (-r..=r).flat_map(move |dy| {
-                        (-r..=r).filter_map(move |dz| {
-                                  let pos = IVec3::new(dx, dy, dz);
-                                  (include_center || pos != IVec3::ZERO).then_some(
-                                    Location(center.0 + pos)
-                                    )
-                                })
+    // let r = radius;
+    let range = move || -radius..=radius;
+
+    range().flat_map(move |dx| {
+             range().flat_map(move |dy| {
+                      range().filter_map(move |dz| {
+                        let pos = IVec3::new(dx, dy, dz);
+                        (include_center || pos != IVec3::ZERO).then_some(Location(center.0
+                                                                                  + pos))
                       })
-            })
+                    })
+           })
   }
 
   pub fn get_block(&self, loc: Location) -> Option<BlockType> {
@@ -987,18 +1002,80 @@ impl WorldLocationMap {
   pub fn get_player_loc(&self) -> Option<Location> { self.player_loc }
 }
 
+// pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
+//                           mut playerq: Query<&Location, With<Player>>,
+//                           added: Query<(Entity, &Location, Option<&BlockType>),
+//                                 Added<Location>>,
+//                           mut removed_locs: RemovedComponents<Location>,
+//                           moved: Query<(Entity, &Location), Changed<Location>>,
+//                           mut voxel_world: VoxelWorld<MyMainWorld>) {
+//   let WorldLocationMap { blocks,
+//                          entities,
+//                          player_loc,
+//                          entity_positions } = world_locs.as_mut();
+//   *player_loc = playerq.iter().next().copied();
+//   // Handle new/added entities
+//   for (e, &loc, block_type) in &added {
+//     if let Some(&bt) = block_type {
+//       blocks.insert(loc, bt);
+//       voxel_world.set_voxel(loc.0, bt.into());
+//     }
+//     entities.entry(loc).or_default().insert(e);
+//     entity_positions.insert(e, loc);
+//   }
+
+//   // Handle removed entities/blocks
+//   for e in removed_locs.read() {
+//     if let Some(loc) = entity_positions.remove(&e)
+//        && let Some(entity_set) = entities.get_mut(&loc)
+//     {
+//       entity_set.remove(&e);
+//       if entity_set.is_empty() {
+//         entities.remove(&loc);
+//       }
+//       if blocks.remove(&loc).is_some() {
+//         voxel_world.set_voxel(loc.0, WorldVoxel::Air);
+//       }
+//     }
+//   }
+
+//   // Handle moved entities/blocks
+//   for (e, &new_loc) in &moved {
+//     if let Some(old_loc) = entity_positions.get(&e).copied()
+//        && let Some(entity_set) = entities.get_mut(&old_loc)
+//     {
+//       entity_set.remove(&e);
+//       if entity_set.is_empty() {
+//         entities.remove(&old_loc);
+//       }
+//       if blocks.remove(&old_loc).is_some() {
+//         voxel_world.set_voxel(old_loc.0, WorldVoxel::Air);
+//       }
+//     }
+//     entities.entry(new_loc).or_default().insert(e);
+//     entity_positions.insert(e, new_loc);
+
+//     if let Some(bt) = blocks.get(&new_loc).copied() {
+//       voxel_world.set_voxel(new_loc.0, bt.into());
+//     }
+//   }
+// }
 pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
                           mut playerq: Query<&Location, With<Player>>,
                           added: Query<(Entity, &Location, Option<&BlockType>),
                                 Added<Location>>,
                           mut removed_locs: RemovedComponents<Location>,
                           moved: Query<(Entity, &Location), Changed<Location>>,
+
                           mut voxel_world: VoxelWorld<MyMainWorld>) {
   let WorldLocationMap { blocks,
                          entities,
                          player_loc,
                          entity_positions } = world_locs.as_mut();
+
+  // Update player location
   *player_loc = playerq.iter().next().copied();
+
   // Handle new/added entities
   for (e, &loc, block_type) in &added {
     if let Some(&bt) = block_type {
@@ -1011,88 +1088,44 @@ pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
 
   // Handle removed entities/blocks
   for e in removed_locs.read() {
-    if let Some(loc) = entity_positions.remove(&e)
-       && let Some(entity_set) = entities.get_mut(&loc)
-    {
-      entity_set.remove(&e);
-      if entity_set.is_empty() {
-        entities.remove(&loc);
+    if let Some(loc) = entity_positions.remove(&e) {
+      if let Some(entity_set) = entities.get_mut(&loc) {
+        entity_set.remove(&e);
+        if entity_set.is_empty() {
+          entities.remove(&loc);
+        }
       }
+
       if blocks.remove(&loc).is_some() {
-        voxel_world.set_voxel(loc.0, WorldVoxel::Air);
+        voxel_world.set_voxel(loc.0, WorldVoxel::Unset);
       }
     }
   }
 
   // Handle moved entities/blocks
   for (e, &new_loc) in &moved {
-    if let Some(old_loc) = entity_positions.get(&e).copied()
-       && let Some(entity_set) = entities.get_mut(&old_loc)
-    {
-      entity_set.remove(&e);
-      if entity_set.is_empty() {
-        entities.remove(&old_loc);
+    // First handle the old location if it exists
+    if let Some(old_loc) = entity_positions.get(&e).copied() {
+      if let Some(entity_set) = entities.get_mut(&old_loc) {
+        entity_set.remove(&e);
+        if entity_set.is_empty() {
+          entities.remove(&old_loc);
+        }
       }
-      if blocks.remove(&old_loc).is_some() {
-        voxel_world.set_voxel(old_loc.0, WorldVoxel::Air);
+
+      comment! {
+        if blocks.remove(&old_loc).is_some() {
+          voxel_world.set_voxel(old_loc.0, WorldVoxel::Unset);
+        }
       }
     }
+
+    // Then handle the new location
     entities.entry(new_loc).or_default().insert(e);
     entity_positions.insert(e, new_loc);
 
-    if let Some(bt) = blocks.get(&new_loc).copied() {
+    if let Some(&bt) = blocks.get(&new_loc) {
       voxel_world.set_voxel(new_loc.0, bt.into());
-    }
-  }
-}
-
-comment! {
-  pub fn sync_locations(mut world_locs: ResMut<WorldLocationMap>,
-                        mut addedq: Query<(Entity, &Location, Option<&BlockType>),
-                                          Added<Location>>,
-                        mut removedq: RemovedComponents<Location>,
-                        movedq: Query<(Entity, &Location), Changed<Location>>,
-                        newblocksq: Query<(Entity, &Location, &BlockType), With<NewBlock>>,
-                        removedblocksq: RemovedComponents<BlockType>,
-                        mut voxel_world: VoxelWorld<MyMainWorld>) {
-    let WorldLocationMap { blocks,
-                           entities,
-                           entity_positions } = world_locs.as_mut();
-    let add_to_loc = |e, loc| {
-      entities.entry(loc).or_default().insert(e);
-      entity_positions.insert(e, loc);
-    };
-    for (e, &loc, obt) in &addedq {
-      if let Some(&bt) = obt {
-        blocks.insert(loc, bt);
-      }
-      add_to_loc(e, loc);
-    }
-    let remove_from_loc = |e| {
-      if let Some(loc) = entity_positions.remove(&e)
-        && let Some(entityset) = entities.get_mut(&loc)
-      {
-        entityset.remove(&e);
-        if entityset.is_empty() {
-          entities.remove(&loc);
-        }
-      }
-    };
-    for e in removedq.read() {
-      if let Some(&old_loc) = entity_positions.get(&e) {
-        blocks.get(&old_loc)
-      }
-      remove_from_loc(e);
-    }
-    for blockentity in &removedblocksq {
-      blocks.remove();
-    }
-    // Handle moved entities
-    for (entity, location) in &movedq {
-      // Remove from old position if it exists
-      remove_from_loc(e);
-      // Add to new position
-      add_to_loc(e, loc);
     }
   }
 }
@@ -1110,16 +1143,16 @@ fn maintain_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>,
   }
 
   // Some bricks
-  voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
-  voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
-  voxel_world.set_voxel(IVec3::new(1, 0, 0), BlockType::Snow.into());
-  voxel_world.set_voxel(IVec3::new(0, 0, 1), BlockType::Snow.into());
-  voxel_world.set_voxel(IVec3::new(0, 0, -1), BlockType::Stone.into());
-  voxel_world.set_voxel(IVec3::new(-1, 0, 0), BlockType::Stone.into());
-  voxel_world.set_voxel(IVec3::new(-2, 0, 0), BlockType::Sand.into());
-  voxel_world.set_voxel(IVec3::new(-1, 1, 0), BlockType::Bricks.into());
-  voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
-  voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
+  // voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
+  // voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
+  // voxel_world.set_voxel(IVec3::new(1, 0, 0), BlockType::Snow.into());
+  // voxel_world.set_voxel(IVec3::new(0, 0, 1), BlockType::Snow.into());
+  // voxel_world.set_voxel(IVec3::new(0, 0, -1), BlockType::Stone.into());
+  // voxel_world.set_voxel(IVec3::new(-1, 0, 0), BlockType::Stone.into());
+  // voxel_world.set_voxel(IVec3::new(-2, 0, 0), BlockType::Sand.into());
+  // voxel_world.set_voxel(IVec3::new(-1, 1, 0), BlockType::Bricks.into());
+  // voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
+  // voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
 }
 fn player_movement(// mut camq: Query<&mut PanOrbitCamera>,
                    // world_locs: Res<WorldLocationMap>,
@@ -1141,14 +1174,73 @@ fn player_movement(// mut camq: Query<&mut PanOrbitCamera>,
     player_pos.0 += key_dir(key);
   }
 }
-fn camera_movement(mut camq: Query<&mut PanOrbitCamera>,
+// fn random_movement(moversq: Query<&mut Location, With<RandomMovement>>,
+//                    world_locs: Res<WorldLocationMap>) {
+//   // time.0 as usize % N == 0
+// }
+impl WorldLocationMap {
+  pub fn get_adjacent_walkable(&self, loc: Location) -> Vec<Location> {
+    let adjacents = [IVec3::new(1, 0, 0),
+                     IVec3::new(-1, 0, 0),
+                     IVec3::new(0, 0, 1),
+                     IVec3::new(0, 0, -1)];
+
+    adjacents.iter()
+             .map(|&offset| Location(loc.0 + offset))
+             .filter(|&pos| {
+               let below = Location(pos.0 - IVec3::Y);
+               self.get_block(pos).is_none() && // No block at position
+                self.get_block(below).is_some() // Has floor
+                                                //  &&
+                                                // !self.get_entities_at(pos).next().is_some() // No entities
+             })
+             .collect()
+  }
+}
+
+fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTimeStamp>) {
+  frame_timestamp.0 = time.0;
+}
+fn random_movement(mut moversq: Query<&mut Location, With<RandomMovement>>,
                    world_locs: Res<WorldLocationMap>,
+                   time: Res<TimeTicks>) {
+  for mut loc in &mut moversq {
+    // println("asdf movement");
+    if let Some(new_pos) = pick(world_locs.get_adjacent_walkable(*loc)) {
+      // println("random movement");
+      *loc = new_pos;
+    }
+  }
+}
+
+fn camera_movement(mut camq: Query<(&mut PanOrbitCamera, &Transform)>,
+                   world_locs: Res<WorldLocationMap>,
+                   mut cam_target_pos: Local<Vec3>,
+                   keys: Res<ButtonInput<KeyCode>>,
                    player_query: Query<Entity, With<Player>>,
-                   targetq: Query<&Location, With<CameraTarget>>) {
+                   mut targetq: Query<&mut Location, With<CameraTarget>>) {
   if let Some(player_pos) = world_locs.get_player_loc()
-     && let Ok(mut cam) = camq.get_single_mut()
+     && let Ok((mut cam, cam_transform)) = camq.get_single_mut()
+     && let Ok(mut targetpos) = targetq.get_single_mut()
   {
-    cam.target_focus = player_pos.0.as_vec3();
+    let up = Vec3::Y;
+    let forward = Vec3 { y: 0.0,
+                         ..cam_transform.forward().into() }.normalize_or_zero();
+    let right = forward.cross(up);
+
+    let Vec3 { x, y, z } =
+      sum(filter_map(|(key, v)| keys.pressed(key).then_some(v),
+                     [(KeyCode::KeyA, Vec3::NEG_X),
+                      (KeyCode::KeyS, Vec3::NEG_Z),
+                      (KeyCode::KeyD, Vec3::X),
+                      (KeyCode::KeyW, Vec3::Z),
+                      (KeyCode::ControlLeft, Vec3::NEG_Y),
+                      (KeyCode::ShiftLeft, Vec3::Y)])).normalize_or_zero();
+    let keyb_dir = (x * right) + (z * forward) + (y * up);
+    *cam_target_pos += keyb_dir * 0.2;
+    // cam.target_focus = player_pos.0.as_vec3();
+    cam.target_focus = *cam_target_pos;
+    *targetpos = Location::from(*cam_target_pos);
   }
 }
 
@@ -1293,6 +1385,9 @@ enum NavigationKind {
 
 #[derive(Default, Resource)]
 pub struct TimeTicks(pub u32);
+#[derive(Default, Resource)]
+pub struct FrameTimeStamp(pub u32);
+
 pub fn increment_time(mut time: ResMut<TimeTicks>) { time.0 += 1; }
 pub fn timed_animation_system(time_ticks: Res<TimeTicks>,
                               mut q: Query<(&TimedAnimation, &mut TextureAtlas)>) {
@@ -1428,6 +1523,8 @@ pub fn string(t: impl ToString) -> String { t.to_string() }
 #[derive(Component, Clone, Default)]
 struct CanBeFollowedByNPC;
 
+const TICK_TIME: usize = 20;
+
 pub const BLOOM_SETTINGS: BloomSettings =
   BloomSettings { intensity: 0.5,
                   low_frequency_boost: 0.0,
@@ -1446,34 +1543,34 @@ const FOG_SETTINGS: FogSettings =
                 directional_light_color: Color::NONE,
                 directional_light_exponent: 8.0 };
 
-pub const AMBIENT_LIGHT: AmbientLight = AmbientLight { color: mycolor::AMBIENT_LIGHT,
-                                                       brightness: 14.0 };
-const PLAYER_LIGHT_FLASHLIGHT: SpotLight =
-  SpotLight { color: Color::WHITE,
-              intensity: 600_000.0,
-              range: 17.0,
-              radius: 0.0,
-              shadows_enabled: true,
-              shadow_depth_bias: SpotLight::DEFAULT_SHADOW_DEPTH_BIAS,
-              shadow_normal_bias: SpotLight::DEFAULT_SHADOW_NORMAL_BIAS,
-              inner_angle: 0.3,
-              outer_angle: 0.7 };
-const TORCH_LIGHT: PointLight =
-  PointLight { color: Color::hsv(33.0, 1.0, 0.5),
-               intensity: 60_000.0,
-               radius: 0.0,
-               range: 8.0,
-               shadows_enabled: true,
-               shadow_depth_bias: PointLight::DEFAULT_SHADOW_DEPTH_BIAS / 10.0,
-               shadow_normal_bias: PointLight::DEFAULT_SHADOW_NORMAL_BIAS / 10.0 };
-const PLAYER_LIGHT_AMBIENT: PointLight =
-  PointLight { color: Color::WHITE,
-               intensity: 9_000.0,
-               radius: 0.0,
-               range: 16.0,
-               shadows_enabled: false,
-               shadow_depth_bias: PointLight::DEFAULT_SHADOW_DEPTH_BIAS / 10.0,
-               shadow_normal_bias: PointLight::DEFAULT_SHADOW_NORMAL_BIAS / 10.0 };
+pub const AMBIENT_LIGHT: AmbientLight = AmbientLight { color: Color::hsv(301.0, 1.0, 1.0),
+                                                       brightness: 30.0 };
+// const PLAYER_LIGHT_FLASHLIGHT: SpotLight =
+//   SpotLight { color: Color::WHITE,
+//               intensity: 600_000.0,
+//               range: 17.0,
+//               radius: 0.0,
+//               shadows_enabled: true,
+//               shadow_depth_bias: SpotLight::DEFAULT_SHADOW_DEPTH_BIAS,
+//               shadow_normal_bias: SpotLight::DEFAULT_SHADOW_NORMAL_BIAS,
+//               inner_angle: 0.3,
+//               outer_angle: 0.7 };
+// const TORCH_LIGHT: PointLight =
+//   PointLight { color: Color::hsv(33.0, 1.0, 0.5),
+//                intensity: 60_000.0,
+//                radius: 0.0,
+//                range: 8.0,
+//                shadows_enabled: true,
+//                shadow_depth_bias: PointLight::DEFAULT_SHADOW_DEPTH_BIAS / 10.0,
+//                shadow_normal_bias: PointLight::DEFAULT_SHADOW_NORMAL_BIAS / 10.0 };
+// const PLAYER_LIGHT_AMBIENT: PointLight =
+//   PointLight { color: Color::WHITE,
+//                intensity: 9_000.0,
+//                radius: 0.0,
+//                range: 16.0,
+//                shadows_enabled: false,
+//                shadow_depth_bias: PointLight::DEFAULT_SHADOW_DEPTH_BIAS / 10.0,
+//                shadow_normal_bias: PointLight::DEFAULT_SHADOW_NORMAL_BIAS / 10.0 };
 
 #[derive(Component)]
 struct Note(&'static str);
@@ -1566,13 +1663,13 @@ fn note(translation: Vec3, note_data: &'static str) -> impl Bundle {
                                           scale: Vec3::splat(0.5) },
                    ..default() })
 }
-fn torch(pos: Vec3) -> impl Bundle {
-  (Visuals::unlit_sprite(MySprite::TORCH),
-   FaceCamera,
-   PointLightBundle { transform: Transform::from_translation(pos),
-                      point_light: TORCH_LIGHT,
-                      ..default() })
-}
+// fn torch(pos: Vec3) -> impl Bundle {
+//   (Visuals::unlit_sprite(MySprite::TORCH),
+//    FaceCamera,
+//    PointLightBundle { transform: Transform::from_translation(pos),
+//                       point_light: TORCH_LIGHT,
+//                       ..default() })
+// }
 
 // fn init(mut world: &mut World) { world.clear_entities() }
 type NumberFunction = fn(i32) -> i32;
@@ -1589,11 +1686,39 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
              mut c: Commands) {
-  c.spawn((Location::default(), CameraTarget));
+  let mut spawn_block = |x, y, z| {
+    c.spawn(block_entity(Location::new(x, y, z),
+                         pick([BlockType::Dirt,
+                               BlockType::Snow,
+                               BlockType::Rocks,
+                               BlockType::Stone,
+                               BlockType::Bricks]).unwrap()));
+  };
+  spawn_block(0, 0, 0);
+  spawn_block(1, 0, 0);
+  spawn_block(0, 0, 1);
+  spawn_block(0, 0, -1);
+  spawn_block(-1, 0, 0);
+  spawn_block(-2, 0, 0);
+  spawn_block(-1, 1, 0);
+  spawn_block(-2, 1, 0);
+  spawn_block(0, 1, 0);
+
+  for x in -10..10 {
+    for z in -10..10 {
+      spawn_block(x, -1, z);
+      // voxel_world.set_voxel(IVec3::new(x, -1, z), BlockType::Snow.into());
+      // Grassy floor
+    }
+  }
+  c.spawn((Location::default(), CameraTarget, Visuals::unlit_sprite(MySprite::WHITE_CORNERS)));
   c.spawn((Location::default(), Player::default()));
   c.spawn((Location::new(5, 5, 5), Visuals::sprite(MySprite::COFFEE)));
   c.spawn((Location::new(5, 4, 5), Visuals::sprite(MySprite::COFFEE)));
   c.spawn((Location::new(5, 3, 5), Visuals::sprite(MySprite::COFFEE)));
+  c.spawn(basic_npc(Location::new(5, 2, 5), "Zorp", MySprite::ZORP));
+  c.spawn(basic_npc(Location::new(5, 1, 5), "Zorp", MySprite::ZORP));
+  c.spawn(basic_npc(Location::new(5, 0, 5), "Zorp", MySprite::ZORP));
   let fov = std::f32::consts::PI / 4.0;
 
   let pitch_upper_limit_radians = 1.0;
@@ -2213,8 +2338,10 @@ comment! {
       let (node, _) = tree[0];
       Self::MultipleOptions(InteractMultipleOptions::DialogueTREE(tree, node))
     }
+
   }
 }
+fn every_n_ticks<const N: usize>(time: Res<TimeTicks>) -> bool { time.0 as usize % N == 0 }
 #[bevy_main]
 pub fn main() {
   let voxel_material = MyMaterial::BLOCKS.val();
@@ -2227,12 +2354,12 @@ pub fn main() {
                                      // restitution_iterations: 1,
                                      ..default() };
   let address_mode = ImageAddressMode::ClampToBorder;
-  let default_sampler = ImageSamplerDescriptor { // address_mode_u: address_mode,
-                                                 //                        address_mode_v: address_mode,
-                                                 //                        address_mode_w: address_mode,
-                                                 mag_filter: ImageFilterMode::Nearest,
+  let default_sampler = ImageSamplerDescriptor { mag_filter: ImageFilterMode::Nearest,
                                                  min_filter: ImageFilterMode::Linear,
                                                  mipmap_filter: ImageFilterMode::Linear,
+                                                 // address_mode_u: address_mode,
+                                                 //                        address_mode_v: address_mode,
+                                                 //                        address_mode_w: address_mode,
                                                  // compare:
                                                  //   Some(ImageCompareFunction::Less),
                                                  // lod_min_clamp: 10.0,
@@ -2281,12 +2408,10 @@ pub fn main() {
       avian3d::PhysicsPlugins::default(),
       QuillPlugin,
       QuillOverlaysPlugin,
-    ))// .add_plugins(add_global_highlight)
-  // .add_event::<GuiInputEvent>()
-
+    ))
     .init_state::<GameState>()
     .init_resource::<UIData>()
-    // .init_resource::<GameOver>()
+    .init_resource::<FrameTimeStamp>()
     .init_resource::<TimeTicks>()
     .init_resource::<WorldLocationMap>()
     .insert_resource(gravity)
@@ -2309,6 +2434,10 @@ pub fn main() {
       origin_time,
       timed_animation_system,
     ).chain())
+    .add_systems(Update,(
+      set_frame_timestamp,
+      random_movement,
+    ).run_if(every_n_ticks::<TICK_TIME>))
     .add_systems(Update,(
       position_sprite_billboards,
       // proximity_system,
