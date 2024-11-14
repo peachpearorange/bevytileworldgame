@@ -1,4 +1,4 @@
-use {crate::{Combat, Item, Player, UIData},
+use {crate::{Combat, Player},
      bevy::{ecs::world::Command, prelude::*},
      rust_utils::*};
 

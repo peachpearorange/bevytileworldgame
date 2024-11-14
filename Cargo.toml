@@ -43,24 +43,16 @@ dist = {inherits = "release", lto = "fat"}
 # resolver = "2"
 
 [dependencies]
-# bevy_utils = {path = "../bevy_utils"}
-# bevy_third_person_camera = {version = "0.1.8"}
-# bevy_sprite3d = "*"
 # wayland-client = "0.31.3"
-# bevy_mod_billboard = { git = "https://github.com/kulkalkul/bevy_mod_billboard", rev = "1fabd2214731dedb4b17ce0a0894d22182707759" }
-# bevy_meshem ={git = "https://github.com/Adamkob12/bevy_meshem", rev = "37163302e9db919941478d0647803acf527d4dbf"}
 
 rust_utils = {path = "../rust_utils"}
 rand = "*"
 # iter-comprehensions = "*"
-# bevy_vox_scene ="*"
 bevy_sprite3d = "*"
 
-# bevy_meshem = "*"
 # num_enum = "*"
 # bevy_flycam = "0.14.0"
 bevy_mod_billboard = "*"
-# enum-map = "*"
 
 # bevy_mod_picking = {version = "0.20.1",features = ["highlight"]}
 
@@ -103,29 +95,21 @@ bevy = { version = "0.14.1", default-features = false, features = [
     "webgl2",
     # "wayland",
 ] }
-avian3d = "*"
+# avian3d = "*"
 bevy_embedded_assets = "*"
 enum-assoc = "*"
 # anymap = "0.12.1"
-# by_address = "1.2.1"
 bevy_panorbit_camera = "0.19.3"
 # sickle_ui = "0.2.3"
 fancy_constructor = "*"
 bevy_quill = "*"
 bevy_quill_overlays = "*"
 # uuid = "1.10.0"
-# lazy_static = "1.5.0"
 # bevy_mesh_terrain = "0.14.15"
 # strum = "0.26.3"
-# bevy_dynamic_bundle = "0.2.1"
-# frunk = "0.4.3"
-# hlist2 = "0.0.15"
-# enum_dispatch = "0.3.13"
-# trait-union = "0.1.4"
-# cached = "0.53.1"
 
 # bevy_meshem ="*"
 bevy-debug-camera = "*"
-bevy_vector_shapes = "*"
-fast-surface-nets = "*"
+# bevy_vector_shapes = "*"
+# fast-surface-nets = "*"
 bevy_voxel_world = "*"
