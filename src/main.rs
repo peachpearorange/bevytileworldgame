@@ -488,6 +488,7 @@ struct AttackPlayer;
 struct PlayerFollower;
 #[derive(Component, Clone)]
 struct DragonAttack;
+#[derive(Clone, Copy, Debug)]
 enum Dir {
   North,
   Northeast,
@@ -932,6 +933,11 @@ pub struct Location(pub IVec3);
 impl Location {
   pub const fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
 }
+impl From<IVec3> for Location {
+    fn from(value: IVec3) -> Self {
+        Self(value)
+    }
+  }
 impl From<Location> for Vec3 {
   fn from(Location(ivec3): Location) -> Self { ivec3.as_vec3() }
 }
@@ -1021,78 +1027,31 @@ impl WorldLocationMap {
   }
 }
 
-use {noise::{NoiseFn, Perlin},
-     rand::Rng};
+mod worldgen;
 
-// Dimensions of the world grid
-const WIDTH: usize = 256;
-const HEIGHT: usize = 64;
-const LENGTH: usize = 256;
+// fn player_movement(
+//     keys: Res<ButtonInput<KeyCode>>,
+//     mut player_query: Query<&mut Location, With<Player>>
+// ) {
+//     if let Ok(mut pos) = player_query.get_single_mut() {
+//         if let Some(&key) = keys.get_just_pressed().nth(0) {
+//             let dir = match key {
+//                 KeyCode::KeyW => Some(IVec3::Z),
+//                 KeyCode::KeyS => Some(IVec3::NEG_Z),
+//                 KeyCode::KeyA => Some(IVec3::NEG_X),
+//                 KeyCode::KeyD => Some(IVec3::X),
+//                 KeyCode::Space => Some(IVec3::Y),
+//                 KeyCode::ShiftLeft => Some(IVec3::NEG_Y),
+//                 _ => None
+//             };
 
-struct WorldGenTile(Option<BlockType>, Box<dyn FnOnce(&mut Commands)>);
+//             if let Some(dir) = dir {
+//                 pos.0 += dir;
+//             }
+//         }
+//     }
+// }
 
-  fn spawn_tree(&mut self, x: usize, y: usize, z: usize) {
-    if y + 4 >= HEIGHT {
-      return;
-    } // Ensure tree fits within bounds
-
-    // Trunk
-    for dy in 0..4 {
-      self.blocks[x][y + dy][z] = BlockType::Tree;
-    }
-
-    // Leaves layer (simple square)
-    for dx in -1..=1 {
-      for dz in -1..=1 {
-        if x as isize + dx >= 0 && x + dx < WIDTH && z as isize + dz >= 0 && z + dz < LENGTH
-        {
-          self.blocks[(x as isize + dx) as usize][y + 4][(z as isize + dz) as usize] =
-            BlockType::Tree;
-        }
-      }
-    }
-  }
-fn worldgen() -> [[[WorldGenTile; LENGTH]; HEIGHT]; WIDTH] {
-    let perlin = Perlin::new();
-
-    // Iterate over each x, z coordinate to determine surface height and caves
-    for x in 0..WIDTH {
-      for z in 0..LENGTH {
-        let height = (perlin.get([x as f64 / 50.0, z as f64 / 50.0]) * 15.0 + 30.0) as usize;
-
-        // Generate surface terrain based on height
-        for y in 0..HEIGHT {
-          if y < height - 4 {
-            self.blocks[x][y][z] = BlockType::Stone; // Underground stone
-          } else if y < height {
-            self.blocks[x][y][z] = BlockType::Dirt; // Dirt layer
-          } else if y == height {
-            self.blocks[x][y][z] = BlockType::Grass; // Surface grass
-          }
-
-          // Cave generation using a separate noise layer
-          let cave_noise = perlin.get([x as f64 / 20.0, y as f64 / 20.0, z as f64 / 20.0]);
-          if cave_noise > 0.6 && y < height - 4 {
-            self.blocks[x][y][z] = BlockType::Air; // Carve out caves
-          }
-        }
-
-        // Spawn tree on the surface
-        if self.blocks[x][height][z] == BlockType::Grass
-           && rand::thread_rng().gen_range(0..10) < 2
-        {
-          self.spawn_tree(x, height + 1, z);
-        }
-      }
-    }
-  }
-
-
-fn main() {
-  let mut world = World::new();
-  world.generate();
-  println!("World generated with terrain and caves.");
-}
 pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
                           mut playerq: Query<&Location, With<Player>>,
                           added: Query<(Entity, &Location, Option<&BlockType>),
@@ -1386,21 +1345,13 @@ fn avg<T: std::iter::Sum + std::ops::Div<f32, Output = T>>(coll: impl IntoIterat
   (n != 0).then(|| s / (n as f32))
 }
 
-#[derive(Component, Debug, Clone, Copy, new)]
-pub struct Navigation {
-  max_speed: f32,
-  #[new(default)]
-  navigation_kind: NavigationKind
-}
-
-#[derive(Default, Debug, Clone, Copy)]
-enum NavigationKind {
+#[derive(Component, Default, Debug, Clone, Copy)]
+enum Navigation {
   #[default]
   None,
-  // Dir2(Dir2),
-  Vec2(Vec2),
-  Pos(Vec2),
-  Chase(Entity) // ChaseAtRange(Entity, f32)
+  Dir(Dir),
+  Loc(Location),
+  Chase(Entity)
 }
 
 #[derive(Default, Resource)]
@@ -1659,6 +1610,13 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn(basic_npc(Location::new(5, 1, 5), "Zorp", MySprite::ZORP));
   c.spawn(basic_npc(Location::new(5, 0, 5), "Zorp", MySprite::ZORP));
   c.spawn(basic_npc(Location::new(5, 0, 5), "You", MySprite::PLAYER));
+  c.spawn((Location::new(5, 0, 4), Visuals::sprite(MySprite::GATE)));
+  c.spawn((Location::new(5, 0, 3), Visuals::sprite(MySprite::PORTAL)));
+  c.spawn((Location::new(5, 0, 2), Visuals::sprite(MySprite::SPACEMAN)));
+  c.spawn((Location::new(5, 0, 1), Visuals::sprite(MySprite::SPACEWIZARD)));
+  c.spawn((Location::new(5, 0, 0), Visuals::sprite(MySprite::ICESTEROID)));
+  c.spawn((Location::new(5, 0, -1), Visuals::sprite(MySprite::EVIL_ROBOT)));
+  c.spawn((Location::new(5, 0, -2), Visuals::sprite(MySprite::BROWNGASGIANT)));
   c.spawn(torch(Location::new(4, 0, 5)));
   c.spawn(torch(Location::new(6, 0, 3)));
   c.spawn((Location::new(5, 0, 5), Visuals::sprite(MySprite::TREE)));
