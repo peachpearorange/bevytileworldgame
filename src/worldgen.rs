@@ -70,11 +70,17 @@ pub fn world_coords(bounds: IVec3) -> impl Iterator<Item = IVec3> {
          })
 }
 
+pub fn generate_world() -> impl Iterator<Item = (IVec3, WorldTile)> {
+  let noise = Perlin::new(5);
+  let bounds = IVec3::new(128, 64, 128);
+  world_coords(bounds).map(move |pos| (pos, generate_tile(&noise, pos)))
+}
+
 pub fn spawn_world(mut commands: Commands) {
   let noise = Perlin::new(5);
   let bounds = IVec3::new(128, 64, 128);
   let coords = world_coords(bounds);
-  for (pos, tile) in coords.map(|pos| (pos, generate_tile(&noise, pos))) {
+  for (pos, tile) in coords.map(move |pos| (pos, generate_tile(&noise, pos))) {
     match tile {
       WorldTile::Block(block) => {
         commands.spawn((Location(pos), block));
