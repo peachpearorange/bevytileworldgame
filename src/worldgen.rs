@@ -3,15 +3,13 @@ use {crate::{BlockType, Location, MySprite, RandomMovement, Visuals},
      noise::{NoiseFn, Perlin},
      rand::random};
 
-// Dimensions of the world grid
 const WIDTH: usize = 256;
 const HEIGHT: usize = 64;
 const LENGTH: usize = 256;
 
 struct WorldGenTile(Option<BlockType>, Box<dyn FnOnce(&mut Commands)>);
 
-type SpawnFn = Box<dyn FnOnce(&mut Commands)>;
-// type SpawnFn = fn(&mut Commands);
+type SpawnFn = Box<dyn FnOnce(&mut Commands, Location)>;
 
 enum WorldTile {
   Block(BlockType),
@@ -20,21 +18,18 @@ enum WorldTile {
   Empty
 }
 
-macro_rules! bundle_spawn {
-    ($($bundle:tt)*) => {{
-        Box::new(move |commands: &mut Commands| {
-            commands.spawn($($bundle)*);
-        })
-    }};
+fn bundle_spawn<B: Bundle>(b: B) -> SpawnFn {
+  Box::new(move |c: &mut Commands, loc| {
+    c.spawn(b).insert(loc);
+  })
 }
 
 fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
   let loc = Location::from(pos);
-  let wanderer = bundle_spawn!((Name::new("Wanderer"),
-                                loc,
-                                RandomMovement,
-                                Visuals::sprite(MySprite::PLAYER)));
-  let tree = bundle_spawn!((Name::new("tree"), loc, Visuals::sprite(MySprite::TREE)));
+
+  let wanderer =
+    bundle_spawn((Name::new("Wanderer"), RandomMovement, Visuals::sprite(MySprite::PLAYER)));
+  let tree = bundle_spawn((Name::new("tree"), Visuals::sprite(MySprite::TREE)));
   // Perlin::get()
   let prob = |p| rand::random::<f32>() < p;
   let IVec3 { x, y, z } = pos;
@@ -43,8 +38,7 @@ fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
 
   let height = surface_height;
   // let water_level = 4;
-
-  if y > height {
+  if cave || y > height {
     WorldTile::Empty
   } else if y == height {
     if prob(0.03) {
@@ -54,8 +48,6 @@ fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
     } else {
       WorldTile::Block(BlockType::Grass)
     }
-  } else if cave {
-    WorldTile::Empty
   } else if y > height - 3 {
     WorldTile::Block(BlockType::Dirt)
   } else {
@@ -76,24 +68,25 @@ pub fn generate_world() -> impl Iterator<Item = (IVec3, WorldTile)> {
   world_coords(bounds).map(move |pos| (pos, generate_tile(&noise, pos)))
 }
 
-pub fn spawn_world(mut commands: Commands) {
+pub fn spawn_world(mut c: &mut Commands) {
   let noise = Perlin::new(5);
-  let bounds = IVec3::new(128, 64, 128);
+  let bounds = IVec3::new(40, 20, 40);
   let coords = world_coords(bounds);
   for (pos, tile) in coords.map(move |pos| (pos, generate_tile(&noise, pos))) {
+    let loc = Location::from(pos);
     match tile {
       WorldTile::Block(block) => {
-        commands.spawn((Location(pos), block));
+        c.spawn((loc, block));
       }
       WorldTile::BlockWithEntitiesOnTop(block, spawns) => {
-        commands.spawn((Location(pos), block));
+        c.spawn((loc, block));
         for spawn in spawns {
-          spawn(&mut commands);
+          spawn(&mut c, loc.above());
         }
       }
       WorldTile::Entities(spawns) => {
         for spawn in spawns {
-          spawn(&mut commands);
+          spawn(&mut c, loc);
         }
       }
       WorldTile::Empty => {}

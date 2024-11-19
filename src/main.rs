@@ -29,7 +29,7 @@ use {bevy::{app::AppExit,
             core_pipeline::bloom::{BloomCompositeMode, BloomPrefilterSettings,
                                    BloomSettings},
             math::primitives,
-            pbr::StandardMaterial,
+            pbr::{NotShadowCaster, NotShadowReceiver, StandardMaterial},
             prelude::{Name, *},
             render::texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor},
             utils::{HashMap, HashSet},
@@ -41,9 +41,13 @@ use {bevy::{app::AppExit,
      bevy_voxel_world::prelude::*,
      enum_assoc::Assoc,
      fancy_constructor::new,
+     noise::Perlin,
      rand::{random, thread_rng},
      rust_utils::*,
-     std::{f32::consts::PI, mem::variant_count, sync::Arc}};
+     std::{f32::consts::{PI, TAU},
+           mem::variant_count,
+           sync::Arc},
+     worldgen::{generate_tile, spawn_world, world_coords}};
 // ui::UIData
 
 mod mycolor {
@@ -52,7 +56,7 @@ mod mycolor {
   // {
   //   // bevy::color::prelude::
   // }
-  pub const CLEAR: Color = Color::hsv(301.0, 1.0, 0.07);
+  pub const CLEAR: Color = Color::hsv(301.0, 1.0, 0.5);
 
   pub const GLOWY: Color = Color::srgb(13.99, 11.32, 50.0);
   pub const GLOWY_2: Color = Color::srgb(30.0, 20.7, 10.5);
@@ -287,17 +291,6 @@ impl GenMesh {
   pub const BILLBOARD_MESH_SQUARE: Self = Self::new(|| {
     primitives::Rectangle::new(BILLBOARD_REL_SCALE, BILLBOARD_REL_SCALE).into()
   });
-}
-
-#[derive(Clone)]
-enum Furniture {
-  Table,
-  Chair,
-  Forge,
-  Stairs,
-  CraftingStation,
-  Door,
-  Bed
 }
 
 fn array_range<const LEN: usize>() -> [usize; LEN] {
@@ -615,11 +608,6 @@ struct Spawnable(fn(&mut Commands, Location));
 #[derive(Component)]
 struct Char(char);
 #[derive(Component)]
-struct Minable {
-  item: Item,
-  labor: Labor
-}
-#[derive(Component)]
 struct Container(Vec<Item>);
 #[derive(Component)]
 struct Quality(u8);
@@ -691,6 +679,17 @@ enum Weapon {
   Bow,
   Spear
 }
+
+#[derive(Clone)]
+enum Furniture {
+  Table,
+  Chair,
+  Forge,
+  Stairs,
+  CraftingStation,
+  Door,
+  Bed
+}
 #[derive(Clone)]
 enum Item {
   Raw(Material),
@@ -702,46 +701,63 @@ enum Item {
   Misc(MiscItem)
 }
 
-fn make_tool(mat: Material, kind: Tool) -> Item { Item::Tool { mat, kind } }
+#[derive(Clone, Component)]
+struct TakeableItem(Item);
+fn takeable_item_entity(loc: Location, item: Item) -> impl Bundle {
+  (TakeableItem(item), loc)
+}
+fn takeable_tool_entity(loc: Location, mat: Material, kind: Tool) -> impl Bundle {
+  takeable_item_entity(loc, Item::Tool { mat, kind })
+}
+fn takeable_weapon_entity(loc: Location, mat: Material, kind: Weapon) -> impl Bundle {
+  takeable_item_entity(loc, Item::Weapon { mat, kind })
+}
 
-fn make_weapon(mat: Material, kind: Weapon) -> Item { Item::Weapon { mat, kind } }
-#[derive(Clone, Copy)]
-enum Labor {
-  Mine,
-  Woodcut,
-  Mason,
-  Smith
+comment! {
+  #[derive(Clone, Copy)]
+  enum Labor {
+    Mine,
+    Woodcut,
+    Mason,
+    Smith
+  }
+
+  #[derive(Component)]
+  struct Minable {
+    item: Item,
+    labor: Labor
+  }
+  #[derive(Component)]
+  struct Digger {
+    speed: f32
+  }
+  #[derive(Component)]
+  struct Craftable {
+    skill: i32
+  }
+  #[derive(Component)]
+  struct Fluid {
+    flow: f32
+  }
+  #[derive(Component)]
+  struct Ore {
+    value: i32
+  }
+  #[derive(Component)]
+  struct Magic {
+    mana: i32
+  }
+  #[derive(Component)]
+  struct Job(&'static str);
+  #[derive(Component)]
+  struct Burns {
+    temp: i32
+  }
+  #[derive(Component)]
+  struct Light(f32);
+  #[derive(Component)]
+  struct Flying;
 }
-#[derive(Component)]
-struct Digger {
-  speed: f32
-}
-#[derive(Component)]
-struct Craftable {
-  skill: i32
-}
-#[derive(Component)]
-struct Fluid {
-  flow: f32
-}
-#[derive(Component)]
-struct Ore {
-  value: i32
-}
-#[derive(Component)]
-struct Magic {
-  mana: i32
-}
-#[derive(Component)]
-struct Job(&'static str);
-#[derive(Component)]
-struct Burns {
-  temp: i32
-}
-#[derive(Component)]
-struct Light(f32);
-#[derive(Component)]
-struct Flying;
 // fn granite() -> impl Bundle { block(Material::Stone(Stone::Granite)) }
 // fn marble() -> impl Bundle { block(Material::Stone(Stone::Marble)) }
 // fn gold_ore() -> impl Bundle { block(Material::Metal(Metal::Gold)) }
@@ -932,12 +948,11 @@ pub struct NewBlock;
 pub struct Location(pub IVec3);
 impl Location {
   pub const fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
+  pub const fn above(self) -> Self { Self(IVec3::new(self.0.x, self.0.y + 1, self.0.z)) }
 }
 impl From<IVec3> for Location {
-    fn from(value: IVec3) -> Self {
-        Self(value)
-    }
-  }
+  fn from(value: IVec3) -> Self { Self(value) }
+}
 impl From<Location> for Vec3 {
   fn from(Location(ivec3): Location) -> Self { ivec3.as_vec3() }
 }
@@ -1223,6 +1238,29 @@ fn camera_movement(mut camq: Query<(&mut PanOrbitCamera, &Transform)>,
   }
 }
 
+#[derive(Component)]
+struct Sun;
+pub fn sun_movement(mut camq: Query<&GlobalTransform, With<Camera3d>>,
+                    time: Res<Time>,
+                    mut sunq: Query<&mut Transform, With<Sun>>) {
+  if let Ok(camera_globaltransform) = camq.get_single()
+     && let Ok(mut sun_transform) = sunq.get_single_mut()
+  {
+    let rot_time_seconds = 10.0;
+    let time_seconds = time.elapsed_seconds();
+    let rot_radians = (time_seconds / rot_time_seconds) * TAU;
+
+    let cam_pos = camera_globaltransform.translation();
+    let new_sun_pos = cam_pos
+                      + Vec3 { x: rot_radians.cos() * 100.0,
+                               y: 60.0,
+                               z: rot_radians.sin() * 100.0 };
+
+    sun_transform.translation = new_sun_pos;
+    let dir = new_sun_pos - cam_pos;
+    sun_transform.look_to(dir, Vec3::Y);
+  }
+}
 const ADD_ONE: fn(i32) -> i32 = |x| x + 1;
 
 // Simple movement system example
@@ -1512,8 +1550,8 @@ const FOG_SETTINGS: FogSettings =
                 directional_light_color: Color::NONE,
                 directional_light_exponent: 8.0 };
 
-pub const AMBIENT_LIGHT: AmbientLight = AmbientLight { color: Color::hsv(301.0, 1.0, 1.0),
-                                                       brightness: 40.0 };
+pub const AMBIENT_LIGHT: AmbientLight = AmbientLight { color: Color::hsv(0.0, 0.0, 1.0),
+                                                       brightness: 2000.0 };
 fn colored_light(color: Color) -> PointLightBundle {
   PointLightBundle { point_light: PointLight { color,
                                                intensity: 900_000.0,
@@ -1571,6 +1609,29 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
              mut c: Commands) {
+  c.spawn((Sun,
+           Visuals::unlit_sprite(MySprite::SUN),
+           NotShadowCaster,
+           NotShadowReceiver,
+           DirectionalLightBundle { directional_light:
+                                      DirectionalLight { color: Color::WHITE,
+                                                       illuminance: 11000.0,
+                                                       shadows_enabled: true,
+                                                       ..default()
+                                                       // shadow_depth_bias: todo!(),
+                                                       // shadow_normal_bias: todo!()
+                                    },
+
+                                    // Self {
+                                    //     num_cascades: 1,
+                                    //     minimum_distance: 0.1,
+                                    //     maximum_distance: 100.0,
+                                    //     first_cascade_far_bound: 5.0,
+                                    //     overlap_proportion: 0.2,
+                                    // }
+                                    // cascade_shadow_config: CascadeShadowConfig
+                                    transform: Transform::from_scale(Vec3::NEG_ONE),
+                                    ..default() }));
   let mut spawn_block = |x, y, z| {
     c.spawn(block_entity(Location::new(x, y, z),
                          pick([BlockType::Dirt,
@@ -1620,6 +1681,30 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn(torch(Location::new(4, 0, 5)));
   c.spawn(torch(Location::new(6, 0, 3)));
   c.spawn((Location::new(5, 0, 5), Visuals::sprite(MySprite::TREE)));
+  spawn_world(&mut c);
+
+  // let noise = Perlin::new(5);
+  // let bounds = IVec3::new(128, 64, 128);
+  // let coords = world_coords(bounds);
+  // for (pos, tile) in coords.map(move |pos| (pos, generate_tile(&noise, pos))) {
+  //   match tile {
+  //     WorldTile::Block(block) => {
+  //       c.spawn((Location(pos), block));
+  //     }
+  //     WorldTile::BlockWithEntitiesOnTop(block, spawns) => {
+  //       c.spawn((Location(pos), block));
+  //       for spawn in spawns {
+  //         spawn(&mut c);
+  //       }
+  //     }
+  //     WorldTile::Entities(spawns) => {
+  //       for spawn in spawns {
+  //         spawn(&mut c);
+  //       }
+  //     }
+  //     WorldTile::Empty => {}
+  //   }
+  // }
   let fov = std::f32::consts::PI / 4.0;
 
   let pitch_upper_limit_radians = 1.0;
@@ -2275,6 +2360,7 @@ pub fn main() {
 
     .add_systems(Update,(
       close_on_esc,
+      sun_movement,
       // toggle_flashlight,
       // navigation,
       player_movement,
