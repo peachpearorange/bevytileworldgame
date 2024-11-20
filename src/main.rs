@@ -47,7 +47,7 @@ use {bevy::{app::AppExit,
      std::{f32::consts::{PI, TAU},
            mem::variant_count,
            sync::Arc},
-     worldgen::{generate_tile, spawn_world, world_coords}};
+     worldgen::spawn_world};
 // ui::UIData
 
 mod mycolor {
@@ -301,22 +301,19 @@ fn array_range<const LEN: usize>() -> [usize; LEN] {
   arr
 }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
-pub fn cuboid_full_iter(lower_corner: IVec3,
-                        side_lengths: IVec3)
-                        -> impl Iterator<Item = IVec3> {
-  let mut v = Vec::new();
-  for x in 0..side_lengths.x {
-    for y in 0..side_lengths.y {
-      for z in 0..side_lengths.z {
-        v.push(lower_corner + IVec3 { x, y, z })
-      }
-    }
-  }
-  v.into_iter()
+// pub fn cuboid_coords(IVec3 { x, y, z }: IVec3) -> impl Iterator<Item = IVec3> {
+//   (-x..x).flat_map(move |a| {
+//            (-y..y).flat_map(move |b| (-z..z).map(move |c| IVec3::new(a, b, c)))
+//          })
+// }
+pub fn cuboid_coords(IVec3 { x, y, z }: IVec3) -> impl Iterator<Item = IVec3> {
+  (-x..x).flat_map(move |a| {
+           (-y..y).flat_map(move |b| (-z..z).map(move |c| IVec3::new(a, b, c)))
+         })
 }
-pub fn sphere_full_iter(center: IVec3, radius: i32) -> impl Iterator<Item = IVec3> {
-  cuboid_full_iter(center - IVec3::splat(radius),IVec3::splat(radius * 2)).filter(move |v: &IVec3| v.distance_squared(center) <= radius.pow(2))
-}
+// pub fn sphere_full_iter(center: IVec3, radius: i32) -> impl Iterator<Item = IVec3> {
+//   cuboid_full_iter(center - IVec3::splat(radius),IVec3::splat(radius * 2)).filter(move |v: &IVec3| v.distance_squared(center) <= radius.pow(2))
+// }
 #[derive(Component, Clone, PartialEq, Eq, Default)]
 pub struct Visuals {
   text: Option<String>,
@@ -511,51 +508,6 @@ pub struct SpaceObject {
   pub click_target_entity: Option<Entity>
 }
 
-// #[derive(Bundle, Clone)]
-// pub struct SpriteBillboardBundle((SpaceObject,
-//                                    Visuals,
-//                                    LockedAxes,
-//                                    ColliderMassProperties,
-//                                    Collider,
-//                                    RigidBody,
-//                                    LinearDamping,
-//                                    AngularDamping,
-//                                    LinearVelocity,
-//                                    AngularVelocity,
-//                                    ExternalForce,
-//                                    ExternalImpulse,
-//                                    SpatialBundle
-// ));
-// impl SpriteBillboardBundle {
-//   fn new(translation: IVec3, scale: f32, can_move: bool, visuals: Visuals) -> Self {
-//     let collider = Collider::sphere(1.0);
-//     Self((SpaceObject { scale, ..default() },
-//           visuals,
-//           LockedAxes::ROTATION_LOCKED,
-//           ColliderMassProperties::new(&collider, 1.0),
-//           collider,
-//           if can_move {
-//             RigidBody::Dynamic
-//           } else {
-//             RigidBody::Static
-//           },
-//           LinearDamping(1.6),
-//           AngularDamping(1.2),
-//           LinearVelocity::default(),
-//           AngularVelocity::default(),
-//           ExternalForce::default().with_persistence(false),
-//           ExternalImpulse::default(),
-//           SpatialBundle { transform: Transform { translation,
-//                                                  rotation: default(),
-//                                                  scale: Vec3::splat(scale) },
-//                           ..default() }))
-//   }
-//   fn sprite(translation: Vec3, scale: f32, can_move: bool, sprite: MySprite) -> Self {
-//     Self::new(translation, scale, can_move, Visuals::sprite(sprite))
-//   }
-// }
-
-const INTERACTION_RANGE: f32 = 8.0;
 enum Alignment {
   LawfulGood,
   LawfulNeutral,
@@ -1652,7 +1604,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
 
   for x in -10..10 {
     for z in -10..10 {
-      spawn_block(x, -1, z);
+      spawn_block(x, 8, z);
     }
   }
 
@@ -1664,47 +1616,25 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
            CameraTarget,
            Visuals::unlit_sprite(MySprite::WHITE_CORNERS)));
   c.spawn((Location::default(), Player::default()));
-  c.spawn((Location::new(5, 5, 5), Visuals::sprite(MySprite::COFFEE)));
-  c.spawn((Location::new(5, 4, 5), Visuals::sprite(MySprite::COFFEE)));
-  c.spawn((Location::new(5, 3, 5), Visuals::sprite(MySprite::COFFEE)));
-  c.spawn(basic_npc(Location::new(5, 2, 5), "Zorp", MySprite::ZORP));
-  c.spawn(basic_npc(Location::new(5, 1, 5), "Zorp", MySprite::ZORP));
-  c.spawn(basic_npc(Location::new(5, 0, 5), "Zorp", MySprite::ZORP));
-  c.spawn(basic_npc(Location::new(5, 0, 5), "You", MySprite::PLAYER));
-  c.spawn((Location::new(5, 0, 4), Visuals::sprite(MySprite::GATE)));
-  c.spawn((Location::new(5, 0, 3), Visuals::sprite(MySprite::PORTAL)));
-  c.spawn((Location::new(5, 0, 2), Visuals::sprite(MySprite::SPACEMAN)));
-  c.spawn((Location::new(5, 0, 1), Visuals::sprite(MySprite::SPACEWIZARD)));
-  c.spawn((Location::new(5, 0, 0), Visuals::sprite(MySprite::ICESTEROID)));
-  c.spawn((Location::new(5, 0, -1), Visuals::sprite(MySprite::EVIL_ROBOT)));
-  c.spawn((Location::new(5, 0, -2), Visuals::sprite(MySprite::BROWNGASGIANT)));
-  c.spawn(torch(Location::new(4, 0, 5)));
-  c.spawn(torch(Location::new(6, 0, 3)));
-  c.spawn((Location::new(5, 0, 5), Visuals::sprite(MySprite::TREE)));
+  c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::COFFEE)));
+  c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::COFFEE)));
+  c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::COFFEE)));
+  c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
+  c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
+  c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
+  c.spawn(basic_npc(Location::new(5, 12, 5), "You", MySprite::PLAYER));
+  c.spawn((Location::new(5, 12, 4), Visuals::sprite(MySprite::GATE)));
+  c.spawn((Location::new(5, 12, 3), Visuals::sprite(MySprite::PORTAL)));
+  c.spawn((Location::new(5, 12, 2), Visuals::sprite(MySprite::SPACEMAN)));
+  c.spawn((Location::new(5, 12, 1), Visuals::sprite(MySprite::SPACEWIZARD)));
+  c.spawn((Location::new(5, 12, 0), Visuals::sprite(MySprite::ICESTEROID)));
+  c.spawn((Location::new(5, 12, -1), Visuals::sprite(MySprite::EVIL_ROBOT)));
+  c.spawn((Location::new(5, 12, -2), Visuals::sprite(MySprite::BROWNGASGIANT)));
+  c.spawn(torch(Location::new(4, 12, 5)));
+  c.spawn(torch(Location::new(6, 12, 3)));
+  c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::TREE)));
   spawn_world(&mut c);
 
-  // let noise = Perlin::new(5);
-  // let bounds = IVec3::new(128, 64, 128);
-  // let coords = world_coords(bounds);
-  // for (pos, tile) in coords.map(move |pos| (pos, generate_tile(&noise, pos))) {
-  //   match tile {
-  //     WorldTile::Block(block) => {
-  //       c.spawn((Location(pos), block));
-  //     }
-  //     WorldTile::BlockWithEntitiesOnTop(block, spawns) => {
-  //       c.spawn((Location(pos), block));
-  //       for spawn in spawns {
-  //         spawn(&mut c);
-  //       }
-  //     }
-  //     WorldTile::Entities(spawns) => {
-  //       for spawn in spawns {
-  //         spawn(&mut c);
-  //       }
-  //     }
-  //     WorldTile::Empty => {}
-  //   }
-  // }
   let fov = std::f32::consts::PI / 4.0;
 
   let pitch_upper_limit_radians = 1.0;
@@ -2358,7 +2288,7 @@ pub fn main() {
                            // create_voxel_scene
     ).chain())
 
-    .add_systems(Update,(
+    .add_systems(Update,((
       close_on_esc,
       sun_movement,
       // toggle_flashlight,
@@ -2369,18 +2299,35 @@ pub fn main() {
       increment_time,
       origin_time,
       timed_animation_system,
-    ).chain())
-    .add_systems(Update,(
-      sync_locations_new,
-      set_frame_timestamp,
-      random_movement,
-    ).run_if(every_n_ticks::<TICK_TIME>))
-    .add_systems(Update,(
+    ).chain(),
+                         (
+                           sync_locations_new,
+                           set_frame_timestamp,
+                           random_movement,
+                         ).run_if(every_n_ticks::<TICK_TIME>),
+
       position_sprite_billboards,
       // proximity_system,
       visuals,
       ui,
     ).chain())
+    // .add_systems(Update,((
+    //   sync_locations_new,
+    //   set_frame_timestamp,
+    //   random_movement,
+    // ).run_if(every_n_ticks::<TICK_TIME>),
+
+    //   position_sprite_billboards,
+    //   // proximity_system,
+    //   visuals,
+    //   ui,
+    // ).chain())
+    // .add_systems(Update,(
+    //   position_sprite_billboards,
+    //   // proximity_system,
+    //   visuals,
+    //   ui,
+    // ).chain())
     .run();
 }
 
