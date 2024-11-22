@@ -47,6 +47,7 @@ fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
   let noise3d = |x, y, z| noise.get([x, y, z]);
   let noise2d = |x, z| noise.get([x, z]);
   let noise1d = |x| noise.get([x]);
+// https://www.redblobgames.com/maps/terrain-from-noise/
   let elevation = |x, z| {
     let freqnoise = |n| noise2d(x * n, z * n);
 
