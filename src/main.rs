@@ -314,11 +314,19 @@ pub fn cuboid_coords(IVec3 { x, y, z }: IVec3) -> impl Iterator<Item = IVec3> {
 // pub fn sphere_full_iter(center: IVec3, radius: i32) -> impl Iterator<Item = IVec3> {
 //   cuboid_full_iter(center - IVec3::splat(radius),IVec3::splat(radius * 2)).filter(move |v: &IVec3| v.distance_squared(center) <= radius.pow(2))
 // }
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum VisualsOrientation {
+  DirectToCamera,
+  DirectUp,
+  #[default]
+  VerticalToCamera
+}
 #[derive(Component, Clone, PartialEq, Eq, Default)]
 pub struct Visuals {
   text: Option<String>,
   material_mesh: Option<(MyMaterial, GenMesh)>,
   sprite: Option<MySprite>,
+  orientation: VisualsOrientation,
   character: Option<char>,
   unlit: bool,
   done: bool

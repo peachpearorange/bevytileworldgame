@@ -1,4 +1,3 @@
-
 use {crate::{cuboid_coords, BlockType, Location, MySprite, RandomMovement, Visuals},
      bevy::prelude::{Name, *},
      noise::{NoiseFn, Perlin},
@@ -45,7 +44,17 @@ fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
   let wanderer =
     bundle_spawn((Name::new("Wanderer"), RandomMovement, Visuals::sprite(MySprite::PLAYER)));
   let tree = bundle_spawn((Name::new("tree"), Visuals::sprite(MySprite::TREE)));
+  let noise3d = |x, y, z| noise.get([x, y, z]);
+  let noise2d = |x, z| noise.get([x, z]);
+  let noise1d = |x| noise.get([x]);
+  let elevation = |x, z| {
+    let freqnoise = |n| noise2d(x * n, z * n);
 
+    1.0 * freqnoise(1.0) + 0.5 * freqnoise(2.0) + 0.25 * freqnoise(4.0)
+    // + 0.5 * freqnoise(2.0)
+    // + 0.5 * freqnoise(2.0)
+  };
+  // elevation[y][x] = e / (1 + 0.5 + 0.25);
   let prob = |p| rand::random::<f32>() < p;
   let IVec3 { x, y, z } = pos;
   let surface_height = 5;
