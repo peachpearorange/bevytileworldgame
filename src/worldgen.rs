@@ -39,28 +39,26 @@ fn bundle_spawn<B: Bundle>(b: B) -> SpawnFn {
   })
 }
 
+const WORLD_HEIGHT: u32 = 10;
 fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
+  let IVec3 { x, y, z } = pos;
   let loc = Location::from(pos);
   let wanderer =
     bundle_spawn((Name::new("Wanderer"), RandomMovement, Visuals::sprite(MySprite::PLAYER)));
   let tree = bundle_spawn((Name::new("tree"), Visuals::sprite(MySprite::TREE)));
-  let noise3d = |x, y, z| noise.get([x, y, z]);
-  let noise2d = |x, z| noise.get([x, z]);
-  let noise1d = |x| noise.get([x]);
-// https://www.redblobgames.com/maps/terrain-from-noise/
-  let elevation = |x, z| {
-    let freqnoise = |n| noise2d(x * n, z * n);
-
-    1.0 * freqnoise(1.0) + 0.5 * freqnoise(2.0) + 0.25 * freqnoise(4.0)
-    // + 0.5 * freqnoise(2.0)
-    // + 0.5 * freqnoise(2.0)
-  };
-  // elevation[y][x] = e / (1 + 0.5 + 0.25);
+  let noise3d = |n: f64| noise.get([x as f64 * n, y as f64 * n, z as f64 * n]);
+  let noise2d = |n: f64| noise.get([x as f64 * n, z as f64 * n]);
+  let elevnoise = |scale: f64, n: f64| scale * noise.get([x as f64 * n, z as f64 * n]);
+  // https://www.redblobgames.com/maps/terrain-from-noise/
+  let elevation = (
+    elevnoise(5.0, 0.03)
+    // + elevnoise(0.01, 20.0)
+    // + elevnoise(20.0, 0.01)
+  ) as i32;
   let prob = |p| rand::random::<f32>() < p;
-  let IVec3 { x, y, z } = pos;
-  let surface_height = 5;
+  // let surface_height = 5;
   let cave = noise.get([x as f64 / 20.0, y as f64 / 20.0, z as f64 / 20.0]) > 0.6;
-  let height = surface_height;
+  let height = elevation as i32;
 
   if cave || y > height {
     WorldTile::empty()
@@ -81,7 +79,7 @@ fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
 
 pub fn spawn_world(mut c: &mut Commands) {
   let noise = Perlin::new(5);
-  let bounds = IVec3::new(40, 20, 40);
+  let bounds = IVec3::new(100, 10, 100);
   let coords = cuboid_coords(bounds);
   for (pos, tile) in coords.map(move |pos| (pos, generate_tile(&noise, pos))) {
     let loc = Location::from(pos);

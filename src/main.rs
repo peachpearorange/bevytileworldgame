@@ -44,7 +44,8 @@ use {bevy::{app::AppExit,
      noise::Perlin,
      rand::{random, thread_rng},
      rust_utils::*,
-     std::{f32::consts::{PI, TAU},
+     std::{cmp::Ordering,
+           f32::consts::{PI, TAU},
            mem::variant_count,
            sync::Arc},
      worldgen::spawn_world};
@@ -462,13 +463,15 @@ pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
   }
   if let Ok(cam_transform) = camq.get_single() {
     for (e, &loc, mut transform) in &mut billboardsq {
-      let dir = Vec3 { y: 0.0,
-                       ..(transform.translation - cam_transform.translation) };
+      // let dir = Vec3 { y: 0.0,
+      //                  ..(transform.translation - cam_transform.translation) };
+      let dir = transform.translation - cam_transform.translation;
+      let updir = cam_transform.up();
       let prev_loc = prev_locs.get(&e).copied().unwrap_or(loc);
       let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
       let frac = (time_since as f32 / TICK_TIME as f32).min(1.0);
       let translation = Vec3::from(prev_loc).lerp(Vec3::from(loc), frac) + Vec3::splat(0.5);
-      *transform = Transform::from_translation(translation).looking_to(dir, Vec3::Y);
+      *transform = Transform::from_translation(translation).looking_to(dir, updir);
     }
   }
 }
@@ -486,7 +489,7 @@ struct AttackPlayer;
 struct PlayerFollower;
 #[derive(Component, Clone)]
 struct DragonAttack;
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Dir {
   North,
   Northeast,
@@ -496,8 +499,38 @@ enum Dir {
   Southwest,
   West,
   Northwest,
+  #[default]
   Here
 }
+
+const DIRS: &[Dir] = &[Dir::North,
+                       Dir::Northeast,
+                       Dir::East,
+                       Dir::Southeast,
+                       Dir::South,
+                       Dir::Southwest,
+                       Dir::West,
+                       Dir::Northwest,
+                       Dir::Here];
+impl Dir {
+  fn rel(loc1: Location, loc2: Location) -> Self {
+    match (loc1.0.x.cmp(&loc2.0.x), loc1.0.z.cmp(&loc2.0.z)) {
+      (Ordering::Less, Ordering::Less) => Dir::Southwest,
+      (Ordering::Less, Ordering::Equal) => Dir::West,
+      (Ordering::Less, Ordering::Greater) => Dir::Northwest,
+      (Ordering::Equal, Ordering::Less) => Dir::South,
+      (Ordering::Equal, Ordering::Equal) => Dir::Here,
+      (Ordering::Equal, Ordering::Greater) => Dir::North,
+      (Ordering::Greater, Ordering::Less) => Dir::Southeast,
+      (Ordering::Greater, Ordering::Equal) => Dir::East,
+      (Ordering::Greater, Ordering::Greater) => Dir::Northeast
+    }
+  }
+  fn rand() -> Self { *pick(DIRS).unwrap() }
+}
+
+#[derive(Component, Default)]
+pub struct TryToMove(Dir);
 const NORMAL_NPC_SCALE: f32 = 1.9;
 const NORMAL_NPC_THRUST: f32 = 400.0;
 #[derive(Component)]
@@ -744,15 +777,12 @@ fn rabbit() -> impl Bundle { basic_animal("rabbit", '🐇') }
 
 fn player() -> impl Bundle {
   (name("You"),
+   TryToMove::default(),
    Player {},
-   EnemyMovement,
-   AttackPlayer,
    Combat { hp: 30,
             damage: 1,
-            is_hostile: true },
-   Visuals::character('@')
-   // SpaceObjectBundle::new(NORMAL_NPC_SCALE, true, Visuals::character('👿'))
-  )
+            is_hostile: false },
+   Visuals::sprite(MySprite::SPACEWIZARD))
 }
 
 fn enemy() -> impl Bundle {
@@ -908,7 +938,22 @@ pub struct NewBlock;
 pub struct Location(pub IVec3);
 impl Location {
   pub const fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
+  pub fn adjacents(self) -> Vec<Self> {
+    mapv(|pos| (self.0 + pos).into(), [IVec3::new(1, 0, 0),
+                                       IVec3::new(-1, 0, 0),
+                                       IVec3::new(0, 0, 1),
+                                       IVec3::new(0, 0, -1),
+                                       IVec3::new(1, 1, 0),
+                                       IVec3::new(-1, 1, 0),
+                                       IVec3::new(0, 1, 1),
+                                       IVec3::new(0, 1, -1),
+                                       IVec3::new(1, -1, 0),
+                                       IVec3::new(-1, -1, 0),
+                                       IVec3::new(0, -1, 1),
+                                       IVec3::new(0, -1, -1)])
+  }
   pub const fn above(self) -> Self { Self(IVec3::new(self.0.x, self.0.y + 1, self.0.z)) }
+  pub const fn below(self) -> Self { Self(IVec3::new(self.0.x, self.0.y - 1, self.0.z)) }
 }
 impl From<IVec3> for Location {
   fn from(value: IVec3) -> Self { Self(value) }
@@ -987,7 +1032,15 @@ impl WorldLocationMap {
     let adjacents = [IVec3::new(1, 0, 0),
                      IVec3::new(-1, 0, 0),
                      IVec3::new(0, 0, 1),
-                     IVec3::new(0, 0, -1)];
+                     IVec3::new(0, 0, -1),
+                     IVec3::new(1, 1, 0),
+                     IVec3::new(-1, 1, 0),
+                     IVec3::new(0, 1, 1),
+                     IVec3::new(0, 1, -1),
+                     IVec3::new(1, -1, 0),
+                     IVec3::new(-1, -1, 0),
+                     IVec3::new(0, -1, 1),
+                     IVec3::new(0, -1, -1)];
 
     adjacents.iter()
              .map(|&offset| Location(loc.0 + offset))
@@ -1121,80 +1174,100 @@ fn maintain_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>,
   // voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
   // voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
 }
-fn player_movement(// mut camq: Query<&mut PanOrbitCamera>,
-                   // world_locs: Res<WorldLocationMap>,
-                   keys: Res<ButtonInput<KeyCode>>,
-                   mut player_query: Query<&mut Location, With<Player>> // targetq: Query<&Pos, With<CameraTarget>>
-) {
-  let key_dir = |key: KeyCode| match key {
-    KeyCode::KeyW => IVec3::Z,
-    KeyCode::KeyA => IVec3::X,
-    KeyCode::KeyS => IVec3::NEG_Z,
-    KeyCode::KeyD => IVec3::NEG_X,
-    KeyCode::ShiftLeft => IVec3::Y,
-    KeyCode::ControlLeft => IVec3::NEG_Y,
-    _ => IVec3::ZERO
-  };
-  if let Some(&key) = keys.get_just_pressed().nth(0)
-     && let Ok(mut player_pos) = player_query.get_single_mut()
-  {
-    player_pos.0 += key_dir(key);
-  }
-}
-// fn random_movement(moversq: Query<&mut Location, With<RandomMovement>>,
-//                    world_locs: Res<WorldLocationMap>) {
-//   // time.0 as usize % N == 0
-// }
 
 fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTimeStamp>) {
   frame_timestamp.0 = time.0;
 }
-fn random_movement(mut moversq: Query<&mut Location, With<RandomMovement>>,
-                   world_locs: Res<WorldLocationMap>,
-                   time: Res<TimeTicks>) {
-  for mut loc in &mut moversq {
-    // println("asdf movement");
-    if let Some(new_pos) = pick(world_locs.get_adjacent_walkable(*loc)) {
-      // println("random movement");
+fn player_movement(keys: Res<ButtonInput<KeyCode>>,
+                   mut player_query: Query<&mut TryToMove, With<Player>>) {
+  if let Some(&key) = keys.get_pressed().nth(0)
+     && let Ok(mut player_trytomove) = player_query.get_single_mut()
+  {
+    let dir = match key {
+      KeyCode::KeyW => Dir::North,
+      KeyCode::KeyA => Dir::West,
+      KeyCode::KeyS => Dir::South,
+      KeyCode::KeyD => Dir::East,
+      _ => Dir::Here
+    };
+    *player_trytomove = TryToMove(dir);
+  }
+}
+fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
+  for mut trytomove in &mut moversq {
+    *trytomove = TryToMove(Dir::rand());
+  }
+}
+fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
+            world_locs: Res<WorldLocationMap>,
+            time: Res<TimeTicks>) {
+  let is_solid = |pos: Location| world_locs.get_block(pos).is_some();
+  let is_walkable = |&pos: &Location| is_solid(pos.below()) && !is_solid(pos);
+  let is_place_to_fall_down = |pos: Location| !is_solid(pos.below());
+  for (mut loc, trytomove) in &mut moversq {
+    let adjacent_walkable = filter(is_walkable, loc.adjacents());
+    // gravity
+    if is_place_to_fall_down(*loc) {
+      *loc = loc.below();
+    } else if let Some(new_pos) = find(|otherloc| Dir::rel(*otherloc, *loc) == trytomove.0,
+                                       adjacent_walkable)
+    {
       *loc = new_pos;
     }
   }
 }
 
-fn camera_movement(mut camq: Query<(&mut PanOrbitCamera, &Transform)>,
-                   world_locs: Res<WorldLocationMap>,
-                   mut cam_target_pos: Local<Vec3>,
-                   keys: Res<ButtonInput<KeyCode>>,
-                   player_query: Query<Entity, With<Player>>,
-                   mut targetq: Query<&mut Location, With<CameraTarget>>,
-                   mut posindidcatiorq: Query<&mut Transform,
-                         (With<CameraPosIndicator>,
-                          Without<PanOrbitCamera>)>) {
-  if let Some(player_pos) = world_locs.get_player_loc()
-     && let Ok((mut cam, cam_transform)) = camq.get_single_mut()
-     && let Ok(mut targetpos) = targetq.get_single_mut()
-     && let Ok(mut posindicatortransform) = posindidcatiorq.get_single_mut()
-  {
-    let up = Vec3::Y;
-    let forward = Vec3 { y: 0.0,
-                         ..cam_transform.forward().into() }.normalize_or_zero();
-    let right = forward.cross(up);
+// fn camera_movement(mut camq: Query<(&mut PanOrbitCamera, &Transform)>,
+//                    world_locs: Res<WorldLocationMap>,
+//                    mut cam_target_pos: Local<Vec3>,
+//                    keys: Res<ButtonInput<KeyCode>>,
+//                    player_query: Query<Entity, With<Player>>,
+//                    mut targetq: Query<&mut Location, With<CameraTarget>>,
+//                    mut posindidcatiorq: Query<&mut Transform,
+//                          (With<CameraPosIndicator>,
+//                           Without<PanOrbitCamera>)>) {
+//   if let Some(player_pos) = world_locs.get_player_loc()
+//      && let Ok((mut cam, cam_transform)) = camq.get_single_mut()
+//      && let Ok(mut targetpos) = targetq.get_single_mut()
+//      && let Ok(mut posindicatortransform) = posindidcatiorq.get_single_mut()
+//   {
+//     let up = Vec3::Y;
+//     let forward = Vec3 { y: 0.0,
+//                          ..cam_transform.forward().into() }.normalize_or_zero();
+//     let right = forward.cross(up);
 
-    let Vec3 { x, y, z } =
-      sum(filter_map(|(key, v)| keys.pressed(key).then_some(v),
-                     [(KeyCode::KeyA, Vec3::NEG_X),
-                      (KeyCode::KeyS, Vec3::NEG_Z),
-                      (KeyCode::KeyD, Vec3::X),
-                      (KeyCode::KeyW, Vec3::Z),
-                      (KeyCode::ControlLeft, Vec3::NEG_Y),
-                      (KeyCode::ShiftLeft, Vec3::Y)])).normalize_or_zero();
-    let keyb_dir = (x * right) + (z * forward) + (y * up);
-    *cam_target_pos += keyb_dir * 0.15;
-    // cam.target_focus = player_pos.0.as_vec3();
-    cam.target_focus = *cam_target_pos;
-    *targetpos = Location::from(*cam_target_pos);
-    *posindicatortransform =
-      Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
+//     let Vec3 { x, y, z } =
+//       sum(filter_map(|(key, v)| keys.pressed(key).then_some(v),
+//                      [(KeyCode::KeyA, Vec3::NEG_X),
+//                       (KeyCode::KeyS, Vec3::NEG_Z),
+//                       (KeyCode::KeyD, Vec3::X),
+//                       (KeyCode::KeyW, Vec3::Z),
+//                       (KeyCode::ControlLeft, Vec3::NEG_Y),
+//                       (KeyCode::ShiftLeft, Vec3::Y)])).normalize_or_zero();
+//     let keyb_dir = (x * right) + (z * forward) + (y * up);
+//     *cam_target_pos += keyb_dir * 0.15;
+//     // cam.target_focus = player_pos.0.as_vec3();
+//     cam.target_focus = *cam_target_pos;
+//     *targetpos = Location::from(*cam_target_pos);
+//     *posindicatortransform =
+//       Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
+//   }
+// }
+fn camera_follow_player(mut camq: Query<(&mut PanOrbitCamera, &mut Transform),
+                              Without<Player>>,
+                        world_locs: Res<WorldLocationMap>,
+                        mut cam_target_pos: Local<Vec3>,
+                        keys: Res<ButtonInput<KeyCode>>,
+                        playerq: Query<&Transform, With<Player>>) {
+  if let Ok(player_transform) = playerq.get_single()
+     && let Ok((mut cam, mut cam_transform)) = camq.get_single_mut()
+  {
+    cam_transform.translation = player_transform.translation + Vec3::Y * 15.0;
+    *cam_transform.rotation = *Quat::from_rotation_x(-PI * 0.5);
+    cam.target_focus = player_transform.translation;
+    // *targetpos = Location::from(*cam_target_pos);
+    // *posindicatortransform =
+    //   Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
   }
 }
 
@@ -2301,9 +2374,8 @@ pub fn main() {
       sun_movement,
       // toggle_flashlight,
       // navigation,
-      player_movement,
       // monster_movement,
-      camera_movement,
+      // camera_movement,
       increment_time,
       origin_time,
       timed_animation_system,
@@ -2311,10 +2383,13 @@ pub fn main() {
                          (
                            sync_locations_new,
                            set_frame_timestamp,
+                           player_movement,
                            random_movement,
+                           movement,
                          ).run_if(every_n_ticks::<TICK_TIME>),
 
       position_sprite_billboards,
+                         camera_follow_player,
       // proximity_system,
       visuals,
       ui,

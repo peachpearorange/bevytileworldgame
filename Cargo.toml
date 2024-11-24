@@ -114,3 +114,4 @@ bevy-debug-camera = "*"
 # fast-surface-nets = "*"
 bevy_voxel_world = "*"
 noise = "0.9.0"
+derive_more = { version = "*", features = ["from", "add"] }
