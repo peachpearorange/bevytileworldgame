@@ -445,10 +445,12 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
   }
 }
 pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
+                                  mut c: Commands,
                                   time: ResMut<TimeTicks>,
                                   frame_timestamp: ResMut<FrameTimeStamp>,
                                   mut billboardsq: Query<(Entity,
-                                         &Location,
+                                         Ref<Location>,
+                                         Option<&PrevLocation>,
                                          &mut Transform),
                                         (With<Visuals>,
                                          Without<Camera3d>)>,
@@ -462,12 +464,12 @@ pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
     curr_locs.extend(billboardsq.iter().map(|(e, &loc, _)| (e, loc)));
   }
   if let Ok(cam_transform) = camq.get_single() {
-    for (e, &loc, mut transform) in &mut billboardsq {
+    for (e, loc, oprevloc, mut transform) in &mut billboardsq {
       // let dir = Vec3 { y: 0.0,
       //                  ..(transform.translation - cam_transform.translation) };
       let dir = transform.translation - cam_transform.translation;
       let updir = cam_transform.up();
-      let prev_loc = prev_locs.get(&e).copied().unwrap_or(loc);
+      let prev_loc = oprevloc.unwrap_or(loc);
       let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
       let frac = (time_since as f32 / TICK_TIME as f32).min(1.0);
       let translation = Vec3::from(prev_loc).lerp(Vec3::from(loc), frac) + Vec3::splat(0.5);
@@ -881,10 +883,15 @@ pub enum BlockTexture {
   Snow,
   Stone,
   Sand,
-  Dirt
+  Dirt,
+  Slime,
+  Water,
+  StoneBricks,
+  Lava
 }
 impl BlockTexture {
   pub const NUM: usize = variant_count::<Self>();
+  pub const fn all_same(self) -> [Self; 3] { [self; 3] }
 }
 impl From<u8> for BlockTexture {
   fn from(index: u8) -> Self { unsafe { std::mem::transmute(index) } }
@@ -899,20 +906,28 @@ impl From<BlockTexture> for u32 {
 #[func(pub const fn textures(&self) -> [BlockTexture; 3])]
 #[repr(u8)]
 pub enum BlockType {
-  #[assoc(textures = [BlockTexture::Bricks; 3])]
+  #[assoc(textures = BlockTexture::Bricks.all_same())]
   Bricks,
   #[assoc(textures = [BlockTexture::Grass, BlockTexture::Grass, BlockTexture::Dirt])]
   Grass,
-  #[assoc(textures = [BlockTexture::Rocks; 3])]
+  #[assoc(textures = BlockTexture::Rocks.all_same())]
   Rocks,
   #[assoc(textures = [BlockTexture::Snow, BlockTexture::Snow, BlockTexture::Dirt])]
   Snow,
-  #[assoc(textures = [BlockTexture::Stone; 3])]
+  #[assoc(textures = BlockTexture::Stone.all_same())]
   Stone,
-  #[assoc(textures = [BlockTexture::Sand; 3])]
+  #[assoc(textures = BlockTexture::Sand.all_same())]
   Sand,
-  #[assoc(textures = [BlockTexture::Dirt; 3])]
-  Dirt
+  #[assoc(textures = BlockTexture::Dirt.all_same())]
+  Dirt,
+  #[assoc(textures = BlockTexture::Slime.all_same())]
+  Slime,
+  #[assoc(textures = BlockTexture::Water.all_same())]
+  Water,
+  #[assoc(textures = BlockTexture::StoneBricks.all_same())]
+  StoneBricks,
+  #[assoc(textures = BlockTexture::Lava.all_same())]
+  Lava
 }
 impl BlockType {
   pub const NUM: usize = variant_count::<Self>();
@@ -971,6 +986,8 @@ impl From<Location> for Transform {
   fn from(loc: Location) -> Self { Transform::from_translation(loc.into()) }
 }
 
+#[derive(Component, Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
+pub struct PrevLocation(pub Location);
 #[derive(Default, Resource)]
 pub struct WorldLocationMap {
   blocks: HashMap<Location, BlockType>,
