@@ -429,7 +429,7 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
                                                ..default() }.bundle(&mut sprite_3d_params)
                      // SpatialBundle { ..default() }
                    ));
-          println("asdfasdf");
+          // println("asdfasdf");
         } else {
           visuals.done = false;
         }
@@ -444,35 +444,47 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
     }
   }
 }
+pub fn set_prev_loc(mut c: Commands,
+                    mut locq: Query<(Entity, Option<&mut PrevLocation>, &Location)>) {
+  for (e, mut oprevloc, loc) in &mut locq {
+    let newprevloc = PrevLocation(*loc);
+    if let Some(mut prevloc) = oprevloc {
+      *prevloc = newprevloc;
+    } else {
+      c.entity(e).insert(newprevloc);
+    }
+  }
+}
 pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
                                   mut c: Commands,
                                   time: ResMut<TimeTicks>,
                                   frame_timestamp: ResMut<FrameTimeStamp>,
                                   mut billboardsq: Query<(Entity,
-                                         Ref<Location>,
+                                         &Location,
                                          Option<&PrevLocation>,
                                          &mut Transform),
                                         (With<Visuals>,
-                                         Without<Camera3d>)>,
-                                  mut prev_locs: Local<HashMap<Entity, Location>>,
-                                  mut curr_locs: Local<HashMap<Entity, Location>>) {
+                                         Without<Camera3d>)>) {
   // a frame every TICK_TIME ticks
   let time_since = time.0 - frame_timestamp.0;
-  if time_since == 0 {
-    *prev_locs = curr_locs.clone();
-    *curr_locs = default();
-    curr_locs.extend(billboardsq.iter().map(|(e, &loc, _)| (e, loc)));
-  }
   if let Ok(cam_transform) = camq.get_single() {
     for (e, loc, oprevloc, mut transform) in &mut billboardsq {
       // let dir = Vec3 { y: 0.0,
       //                  ..(transform.translation - cam_transform.translation) };
       let dir = transform.translation - cam_transform.translation;
       let updir = cam_transform.up();
-      let prev_loc = oprevloc.unwrap_or(loc);
-      let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
-      let frac = (time_since as f32 / TICK_TIME as f32).min(1.0);
-      let translation = Vec3::from(prev_loc).lerp(Vec3::from(loc), frac) + Vec3::splat(0.5);
+      let x = Some(42);
+
+      let Some(val @ 42 | val @ 43) = x;
+
+      // let Some(&PrevLocation(prevloc))k = oprevloc ... else ..
+      // let prevloc = oprevloc.map_or(*loc, |&PrevLocation(loc)| loc);
+
+      // let prevloc = oprevloc.map_or(*loc,);
+      // let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
+      let frac = (time_since as f32 / FRAME_TIME_TICKS as f32).min(1.0);
+      let translation =
+        Vec3::from(prevloc.0).lerp(Vec3::from(*loc), frac) + Vec3::splat(0.5);
       *transform = Transform::from_translation(translation).looking_to(dir, updir);
     }
   }
@@ -1212,6 +1224,7 @@ fn player_movement(keys: Res<ButtonInput<KeyCode>>,
 }
 fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
   for mut trytomove in &mut moversq {
+    // println("aaaaaa");
     *trytomove = TryToMove(Dir::rand());
   }
 }
@@ -1580,7 +1593,7 @@ fn ui(mut c: Commands,
 
 pub fn string(t: impl ToString) -> String { t.to_string() }
 
-const TICK_TIME: usize = 20;
+const FRAME_TIME_TICKS: usize = 20;
 
 pub const BLOOM_SETTINGS: BloomSettings =
   BloomSettings { intensity: 0.5,
@@ -2382,34 +2395,29 @@ pub fn main() {
     .insert_resource(ClearColor(mycolor::CLEAR))
     .insert_resource(AMBIENT_LIGHT)
     .insert_resource(Msaa::Sample4)
-    .add_systems(Startup, (setup,
-                           // create_voxel_scene
-    ).chain())
+    .add_systems(Startup, setup)
 
     .add_systems(Update,((
-      close_on_esc,
-      sun_movement,
-      // toggle_flashlight,
-      // navigation,
-      // monster_movement,
-      // camera_movement,
       increment_time,
       origin_time,
       timed_animation_system,
     ).chain(),
                          (
+                           set_prev_loc,
                            sync_locations_new,
                            set_frame_timestamp,
                            player_movement,
                            random_movement,
                            movement,
-                         ).run_if(every_n_ticks::<TICK_TIME>),
+                         ).run_if(every_n_ticks::<FRAME_TIME_TICKS>),
 
       position_sprite_billboards,
                          camera_follow_player,
       // proximity_system,
       visuals,
       ui,
+      sun_movement,
+      close_on_esc,
     ).chain())
     // .add_systems(Update,((
     //   sync_locations_new,
