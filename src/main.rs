@@ -516,6 +516,21 @@ enum Dir {
   Here
 }
 
+impl From<Dir> for IVec2 {
+  fn from(dir: Dir) -> Self {
+    match dir {
+      Dir::North => IVec2::Y,                        // Up
+      Dir::Northeast => IVec2::X + IVec2::Y,         // Up-Right
+      Dir::East => IVec2::X,                         // Right
+      Dir::Southeast => IVec2::X + IVec2::NEG_Y,     // Down-Right
+      Dir::South => IVec2::NEG_Y,                    // Down
+      Dir::Southwest => IVec2::NEG_X + IVec2::NEG_Y, // Down-Left
+      Dir::West => IVec2::NEG_X,                     // Left
+      Dir::Northwest => IVec2::NEG_X + IVec2::Y,     // Up-Left
+      Dir::Here => IVec2::ZERO                       // No movement
+    }
+  }
+}
 const DIRS: &[Dir] = &[Dir::North,
                        Dir::Northeast,
                        Dir::East,
@@ -526,20 +541,37 @@ const DIRS: &[Dir] = &[Dir::North,
                        Dir::Northwest,
                        Dir::Here];
 impl Dir {
-  fn rel(loc1: Location, loc2: Location) -> Self {
-    match (loc1.0.x.cmp(&loc2.0.x), loc1.0.z.cmp(&loc2.0.z)) {
-      (Ordering::Less, Ordering::Less) => Dir::Southwest,
-      (Ordering::Less, Ordering::Equal) => Dir::West,
-      (Ordering::Less, Ordering::Greater) => Dir::Northwest,
-      (Ordering::Equal, Ordering::Less) => Dir::South,
-      (Ordering::Equal, Ordering::Equal) => Dir::Here,
-      (Ordering::Equal, Ordering::Greater) => Dir::North,
-      (Ordering::Greater, Ordering::Less) => Dir::Southeast,
-      (Ordering::Greater, Ordering::Equal) => Dir::East,
-      (Ordering::Greater, Ordering::Greater) => Dir::Northeast
-    }
-  }
+  // fn rel(loc1: Location, loc2: Location) -> Self {
+  //   match (loc1.0.x.cmp(&loc2.0.x), loc1.0.z.cmp(&loc2.0.z)) {
+  //     (Ordering::Less, Ordering::Less) => Dir::Northwest,
+  //     (Ordering::Less, Ordering::Equal) => Dir::West,
+  //     (Ordering::Less, Ordering::Greater) => Dir::Southwest,
+  //     (Ordering::Equal, Ordering::Less) => Dir::North,
+  //     (Ordering::Equal, Ordering::Equal) => Dir::Here,
+  //     (Ordering::Equal, Ordering::Greater) => Dir::South,
+  //     (Ordering::Greater, Ordering::Less) => Dir::Northeast,
+  //     (Ordering::Greater, Ordering::Equal) => Dir::East,
+  //     (Ordering::Greater, Ordering::Greater) => Dir::Southeast
+  //   }
+  // }
   fn rand() -> Self { *pick(DIRS).unwrap() }
+}
+impl Dir {
+  fn rel(loc1: Location, loc2: Location) -> Self {
+    // Calculate the delta in x and z coordinates
+    let delta_x = loc2.0.x.cmp(&loc1.0.x);
+    let delta_z = loc2.0.z.cmp(&loc1.0.z);
+
+    // Use DIRS to match based on the direction of delta_x and delta_z
+    DIRS.iter()
+        .find(|&&dir| {
+          let dir_vec = IVec2::from(dir);
+          (delta_x, delta_z)
+          == (dir_vec.x.cmp(&IVec2::ZERO.x), dir_vec.y.cmp(&IVec2::ZERO.y))
+        })
+        .copied()
+        .unwrap_or(Dir::Here)
+  }
 }
 
 #[derive(Component, Default)]
@@ -1320,7 +1352,7 @@ fn camera_follow_player(mut camq: Query<(&mut Camera3d, &mut Transform), Without
     // Rotate the camera to look down at the player and add 180 degrees around Y-axis
     let base_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2); // -PI/2 for looking down
     let y_rotation = Quat::from_rotation_y(std::f32::consts::PI); // 180 degrees around Y-axis
-    cam_transform.rotation = y_rotation * base_rotation ; // Combine rotations
+    cam_transform.rotation = y_rotation * base_rotation; // Combine rotations
 
     // cam.target_focus = player_transform.translation;
     // *targetpos = Location::from(*cam_target_pos);
