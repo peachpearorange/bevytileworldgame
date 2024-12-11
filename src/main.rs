@@ -473,18 +473,17 @@ pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
       //                  ..(transform.translation - cam_transform.translation) };
       let dir = transform.translation - cam_transform.translation;
       let updir = cam_transform.up();
-      let x = Some(42);
+      // let x = Some(42);
 
-      let Some(val @ 42 | val @ 43) = x;
+      // let Some(val @ 42 | val @ 43) = x;
 
       // let Some(&PrevLocation(prevloc))k = oprevloc ... else ..
-      // let prevloc = oprevloc.map_or(*loc, |&PrevLocation(loc)| loc);
+      let prevloc = oprevloc.map_or(*loc, |&PrevLocation(loc)| loc);
 
       // let prevloc = oprevloc.map_or(*loc,);
       // let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
       let frac = (time_since as f32 / FRAME_TIME_TICKS as f32).min(1.0);
-      let translation =
-        Vec3::from(prevloc.0).lerp(Vec3::from(*loc), frac) + Vec3::splat(0.5);
+      let translation = Vec3::from(prevloc).lerp(Vec3::from(*loc), frac) + Vec3::splat(0.5);
       *transform = Transform::from_translation(translation).looking_to(dir, updir);
     }
   }
@@ -1207,21 +1206,43 @@ fn maintain_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>,
 fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTimeStamp>) {
   frame_timestamp.0 = time.0;
 }
+// fn player_movement(keys: Res<ButtonInput<KeyCode>>,
+//                    mut player_query: Query<&mut TryToMove, With<Player>>) {
+//   if let Some(&key) = keys.pressed().nth(0)
+//      && let Ok(mut player_trytomove) = player_query.get_single_mut()
+//   {
+//     let dir = match key {
+//       KeyCode::KeyW => Dir::North,
+//       KeyCode::KeyA => Dir::West,
+//       KeyCode::KeyS => Dir::South,
+//       KeyCode::KeyD => Dir::East,
+//       _ => Dir::Here
+//     };
+//     *player_trytomove = TryToMove(dir);
+//   }
+// }
+
 fn player_movement(keys: Res<ButtonInput<KeyCode>>,
                    mut player_query: Query<&mut TryToMove, With<Player>>) {
-  if let Some(&key) = keys.get_pressed().nth(0)
-     && let Ok(mut player_trytomove) = player_query.get_single_mut()
-  {
-    let dir = match key {
-      KeyCode::KeyW => Dir::North,
-      KeyCode::KeyA => Dir::West,
-      KeyCode::KeyS => Dir::South,
-      KeyCode::KeyD => Dir::East,
-      _ => Dir::Here
-    };
+  if let Ok(mut player_trytomove) = player_query.get_single_mut() {
+    // Define key-to-direction mapping
+    let dir = [(KeyCode::KeyW, Dir::North),
+               (KeyCode::KeyA, Dir::West),
+               (KeyCode::KeyS, Dir::South),
+               (KeyCode::KeyD, Dir::East)].iter()
+                                          .find_map(|&(key, dir)| {
+                                                      if keys.pressed(key) {
+                                                        Some(dir)
+                                                      } else {
+                                                        None
+                                                      }
+                                                    })
+                                          .unwrap_or(Dir::Here);
+
     *player_trytomove = TryToMove(dir);
   }
 }
+
 fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
   for mut trytomove in &mut moversq {
     // println("aaaaaa");
@@ -1232,7 +1253,8 @@ fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
             world_locs: Res<WorldLocationMap>,
             time: Res<TimeTicks>) {
   let is_solid = |pos: Location| world_locs.get_block(pos).is_some();
-  let is_walkable = |&pos: &Location| is_solid(pos.below()) && !is_solid(pos);
+  let is_walkable = |&pos: &Location| // is_solid(pos.below()) &&
+    !is_solid(pos);
   let is_place_to_fall_down = |pos: Location| !is_solid(pos.below());
   for (mut loc, trytomove) in &mut moversq {
     let adjacent_walkable = filter(is_walkable, loc.adjacents());
@@ -1283,8 +1305,8 @@ fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
 //       Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
 //   }
 // }
-fn camera_follow_player(mut camq: Query<(&mut PanOrbitCamera, &mut Transform),
-                              Without<Player>>,
+
+fn camera_follow_player(mut camq: Query<(&mut Camera3d, &mut Transform), Without<Player>>,
                         world_locs: Res<WorldLocationMap>,
                         mut cam_target_pos: Local<Vec3>,
                         keys: Res<ButtonInput<KeyCode>>,
@@ -1292,9 +1314,15 @@ fn camera_follow_player(mut camq: Query<(&mut PanOrbitCamera, &mut Transform),
   if let Ok(player_transform) = playerq.get_single()
      && let Ok((mut cam, mut cam_transform)) = camq.get_single_mut()
   {
+    // println("asdfasdfsad");
     cam_transform.translation = player_transform.translation + Vec3::Y * 15.0;
-    *cam_transform.rotation = *Quat::from_rotation_x(-PI * 0.5);
-    cam.target_focus = player_transform.translation;
+    // *cam_transform.rotation = *Quat::from_rotation_x(-PI * 0.5);
+    // Rotate the camera to look down at the player and add 180 degrees around Y-axis
+    let base_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2); // -PI/2 for looking down
+    let y_rotation = Quat::from_rotation_y(std::f32::consts::PI); // 180 degrees around Y-axis
+    cam_transform.rotation = y_rotation * base_rotation ; // Combine rotations
+
+    // cam.target_focus = player_transform.translation;
     // *targetpos = Location::from(*cam_target_pos);
     // *posindicatortransform =
     //   Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
@@ -1734,6 +1762,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
   c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
   c.spawn(basic_npc(Location::new(5, 12, 5), "You", MySprite::PLAYER));
+  c.spawn(player()).insert(Location::new(5, 12, 5));
   c.spawn((Location::new(5, 12, 4), Visuals::sprite(MySprite::GATE)));
   c.spawn((Location::new(5, 12, 3), Visuals::sprite(MySprite::PORTAL)));
   c.spawn((Location::new(5, 12, 2), Visuals::sprite(MySprite::SPACEMAN)));
@@ -1762,7 +1791,8 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
 
                                        ..default() },
                       transform:
-                        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+                      Transform::from_xyz(10.0, 10.0, 10.0)
+                      .looking_at(Vec3::ZERO, Vec3::Y),
 
                       tonemapping: TONEMAPPING,
                       projection:
@@ -1771,40 +1801,41 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
                       // tonemapping:
                       //   bevy::core_pipeline::tonemapping::Tonemapping::Reinhard,
                       ..default() },
-     PanOrbitCamera { // radius: Some(5.0),
+     // PanOrbitCamera { // radius: Some(5.0),
 
-                      // focus: todo!(),
-                      // yaw: todo!(),
-                      // pitch: todo!(),
-                      // target_focus: todo!(),
-                      // target_yaw: todo!(),
-                      // target_pitch: todo!(),
-                      // target_radius: todo!(),
-                      // yaw_upper_limit: todo!(),
-                      // yaw_lower_limit: todo!(),
-                      pitch_upper_limit: Some(pitch_upper_limit_radians),
-                      pitch_lower_limit: Some(pitch_lower_limit_radians),
-                      zoom_upper_limit: Some(8.0),
-                      zoom_lower_limit: Some(2.0),
-                      // orbit_sensitivity: todo!(),
-                      orbit_smoothness: 0.0,
-                      pan_sensitivity: 0.0,
-                      pan_smoothness: 0.5,
-                      zoom_sensitivity: 2.5,
-                      // zoom_smoothness: todo!(),
-                      // button_orbit: todo!(),
-                      // button_pan: todo!(),
-                      // modifier_orbit: todo!(),
-                      // modifier_pan: todo!(),
-                      // touch_enabled: todo!(),
-                      // touch_controls: todo!(),
-                      // reversed_zoom: todo!(),
-                      // is_upside_down: todo!(),
-                      // allow_upside_down: todo!(),
-                      // enabled: todo!(),
-                      // initialized: todo!(),
-                      // force_update: todo!(),
-                      ..default() });
+     //                  // focus: todo!(),
+     //                  // yaw: todo!(),
+     //                  // pitch: todo!(),
+     //                  // target_focus: todo!(),
+     //                  // target_yaw: todo!(),
+     //                  // target_pitch: todo!(),
+     //                  // target_radius: todo!(),
+     //                  // yaw_upper_limit: todo!(),
+     //                  // yaw_lower_limit: todo!(),
+     //                  pitch_upper_limit: Some(pitch_upper_limit_radians),
+     //                  pitch_lower_limit: Some(pitch_lower_limit_radians),
+     //                  zoom_upper_limit: Some(8.0),
+     //                  zoom_lower_limit: Some(2.0),
+     //                  // orbit_sensitivity: todo!(),
+     //                  orbit_smoothness: 0.0,
+     //                  pan_sensitivity: 0.0,
+     //                  pan_smoothness: 0.5,
+     //                  zoom_sensitivity: 2.5,
+     //                  // zoom_smoothness: todo!(),
+     //                  // button_orbit: todo!(),
+     //                  // button_pan: todo!(),
+     //                  // modifier_orbit: todo!(),
+     //                  // modifier_pan: todo!(),
+     //                  // touch_enabled: todo!(),
+     //                  // touch_controls: todo!(),
+     //                  // reversed_zoom: todo!(),
+     //                  // is_upside_down: todo!(),
+     //                  // allow_upside_down: todo!(),
+     //                  // enabled: todo!(),
+     //                  // initialized: todo!(),
+     //                  // force_update: todo!(),
+     //                  ..default() }
+    );
   c.spawn(camera);
   // light
   c.spawn(PointLightBundle { point_light: PointLight { shadows_enabled: true,
@@ -2397,28 +2428,24 @@ pub fn main() {
     .insert_resource(Msaa::Sample4)
     .add_systems(Startup, setup)
 
-    .add_systems(Update,((
-      increment_time,
-      origin_time,
-      timed_animation_system,
-    ).chain(),
-                         (
-                           set_prev_loc,
-                           sync_locations_new,
-                           set_frame_timestamp,
-                           player_movement,
-                           random_movement,
-                           movement,
-                         ).run_if(every_n_ticks::<FRAME_TIME_TICKS>),
-
-      position_sprite_billboards,
-                         camera_follow_player,
-      // proximity_system,
-      visuals,
-      ui,
-      sun_movement,
-      close_on_esc,
-    ).chain())
+    .add_systems(Update,
+                 ((increment_time,
+                   origin_time,
+                   timed_animation_system,).chain(),
+                  (set_prev_loc,
+                   sync_locations_new,
+                   set_frame_timestamp,
+                   player_movement,
+                   random_movement,
+                   movement).run_if(every_n_ticks::<FRAME_TIME_TICKS>),
+                  position_sprite_billboards,
+                  camera_follow_player,
+                  // proximity_system,
+                  visuals,
+                  ui,
+                  sun_movement,
+                  close_on_esc,
+                 ).chain())
     // .add_systems(Update,((
     //   sync_locations_new,
     //   set_frame_timestamp,
