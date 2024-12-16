@@ -1,4 +1,5 @@
-use {crate::{cuboid_coords, BlockType, Location, MySprite, RandomMovement, TryToMove, Visuals},
+use {crate::{cuboid_coords, BlockType, Location, MySprite, RandomMovement, TryToMove,
+             Visuals},
      bevy::prelude::{Name, *},
      noise::{NoiseFn, Perlin},
      rand::random};
@@ -33,6 +34,7 @@ impl WorldTile {
   }
 }
 
+
 fn bundle_spawn<B: Bundle>(b: B) -> SpawnFn {
   Box::new(move |c: &mut Commands, loc| {
     c.spawn(b).insert(loc);
@@ -43,8 +45,10 @@ const WORLD_HEIGHT: u32 = 10;
 fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
   let IVec3 { x, y, z } = pos;
   let loc = Location::from(pos);
-  let wanderer =
-    bundle_spawn((Name::new("Wanderer"),TryToMove::default(), RandomMovement, Visuals::sprite(MySprite::PLAYER)));
+  let wanderer = bundle_spawn((Name::new("Wanderer"),
+                               TryToMove::default(),
+                               RandomMovement,
+                               Visuals::sprite(MySprite::PLAYER)));
   let tree = bundle_spawn((Name::new("tree"), Visuals::sprite(MySprite::TREE)));
   let noise3d = |n: f64| noise.get([x as f64 * n, y as f64 * n, z as f64 * n]);
   let noise2d = |n: f64| noise.get([x as f64 * n, z as f64 * n]);

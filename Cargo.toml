@@ -48,7 +48,7 @@ dist = {inherits = "release", lto = "fat"}
 rust_utils = {path = "../rust_utils"}
 rand = "*"
 # iter-comprehensions = "*"
-bevy_sprite3d = "*"
+bevy_sprite3d = "4.0.0"
 
 # num_enum = "*"
 # bevy_flycam = "0.14.0"
@@ -70,7 +70,7 @@ bevy_mod_billboard = "*"
 # [profile.release]
 # opt-level = 3
 
-bevy = { version = "0.14.1", default-features = false, features = [
+bevy = { version = "0.15.0", default-features = false, features = [
     "animation",
     "bevy_asset",
     "bevy_gilrs",
@@ -99,11 +99,11 @@ bevy = { version = "0.14.1", default-features = false, features = [
 bevy_embedded_assets = "*"
 enum-assoc = "*"
 # anymap = "0.12.1"
-bevy_panorbit_camera = "0.19.3"
+bevy_panorbit_camera = "*"
 # sickle_ui = "0.2.3"
 fancy_constructor = "*"
-bevy_quill = "*"
-bevy_quill_overlays = "*"
+# bevy_quill = "*"
+# bevy_quill_overlays = "*"
 # uuid = "1.10.0"
 # bevy_mesh_terrain = "0.14.15"
 # strum = "0.26.3"
@@ -115,3 +115,4 @@ bevy-debug-camera = "*"
 bevy_voxel_world = "*"
 noise = "0.9.0"
 derive_more = { version = "*", features = ["from", "add"] }
+bevy_ecs_tilemap = "0.15.0"

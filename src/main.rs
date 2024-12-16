@@ -31,13 +31,12 @@ use {bevy::{app::AppExit,
             math::primitives,
             pbr::{NotShadowCaster, NotShadowReceiver, StandardMaterial},
             prelude::{Name, *},
-            render::texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor},
-            utils::{HashMap, HashSet},
-            window::WindowMode},
+            // render::texture::{ImageAddressMode, ImageFilterMode},
+            utils::{HashMap, HashSet}},
      bevy_embedded_assets::*,
      bevy_panorbit_camera::PanOrbitCamera,
-     bevy_quill::{prelude::*, QuillPlugin, ViewChild},
-     bevy_quill_overlays::QuillOverlaysPlugin,
+     // bevy_quill::{prelude::*, QuillPlugin, ViewChild},
+     // bevy_quill_overlays::QuillOverlaysPlugin,
      bevy_voxel_world::prelude::*,
      enum_assoc::Assoc,
      fancy_constructor::new,
@@ -66,18 +65,12 @@ mod mycolor {
   pub const LASER: Color = Color::hsv(60.0, 1.0, 4.0);
   // hsv(61, 100%, 100%)
 }
-// pub const AMBIENT_LIGHT_COLOR: Color = Color::hsv(301.0, 1.0, 1.0);
-// pub const CLEAR_COLOR: Color = Color::hsv(301.0, 1.0, 0.07);
-
-// pub const GLOWY_COLOR: Color = Color::srgb(13.99, 11.32, 50.0);
-// pub const GLOWY_COLOR_2: Color = Color::srgb(30.0, 20.7, 10.5);
-// pub const GLOWY_COLOR_3: Color = Color::srgb(0.0, 30.0, 0.0);
-// pub const EXPLOSION_COLOR: Color = Color::srgb(8.0, 3.0, 3.0);
-// pub const LASER_COLOR: Color = Color::hsv(60.0, 1.0, 4.0);
-// hsv(61, 100%, 100%)
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
 pub const ENABLE_SHADOWS_OTHER_THAN_SUN: bool = false;
+// {
+//   bevy::ui::State
+// }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 struct MySprite {
@@ -393,8 +386,13 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
                   .clone()
   };
 
-  let text_style = TextStyle { font_size: 30.0,
-                               ..default() };
+  let text_color: TextColor = Color::WHITE.into();
+  let text_font: TextFont = TextFont { font: default(),
+                                       font_size: 20.0,
+                                       font_smoothing: Default::default() };
+
+  // let text_style = TextStyle { font_size: 30.0,
+  //                              ..default() };
   let invisible_material = get_material_handle(MyMaterial::INVISIBLE);
 
   for (e, mut visuals) in &mut visuals_q {
@@ -404,31 +402,68 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
       if *n % 100 == 0 {
         println!("{}", *n);
       }
+      //       Text2d
+
+      // /// # let font_handle: Handle<Font> = Default::default();
+      // /// # let mut world = World::default();
+      // /// #
+      // /// // Basic usage.
+      // /// world.spawn(Text2d::new("hello world!"));
+      // ///
+      // /// // With non-default style.
+      // /// world.spawn((
+      // ///     Text2d::new("hello world!"),
+      // ///     TextFont {
+      // ///         font: font_handle.clone().into(),
+      // ///         font_size: 60.0,
+      // ///         ..Default::default()
+      // ///     },
+      // ///     TextColor(BLUE.into()),
+      // /// ));
+      // ///
+      // /// // With text justification.
+      // /// world.spawn((
+      // ///     Text2d::new("hello world\nand bevy!"),
+      // ///     TextLayout::new_with_justify(JustifyText::Center)
+      // /// ));
+      // /// ```
+      // #[derive(Component, Clone, Debug, Default, Deref, DerefMut, Reflect)]
+      // #[reflect(Component, Default, Debug)]
+      // #[require(
+      //     TextLayout,
+      //     TextFont,
+      //     TextColor,
+      //     TextBounds,
+      //     Anchor,
+      //     SpriteSource,
+      //     Visibility,
+      //     Transform
+      // )]
+      // pub struct Text2d(pub String);
+      // Text2dBundle { text: Text::from_section(text, text_style.clone()),
+      //                transform:
+      //                  Transform::from_xyz(0.0, 1.5, 0.0).with_scale(Vec3::splat(0.07)),
+      //                ..default() };
+
       if let Some(text) = visuals.text.clone() {
-        c.entity(e)
-           .insert(Text2dBundle {
-                    text: Text::from_section(text, text_style.clone()),
-                    transform: Transform::from_xyz(0.0, 1.5, 0.0).with_scale(Vec3::splat(0.07)),
-                    ..default()
-                });
+        c.entity(e).insert((Text2d::new(text),
+                            TextFont { // font: font_handle.clone().into(),
+                                       font_size: 30.0,
+                                       ..default() },
+                            TextColor(bevy::color::palettes::css::WHITE.into())));
       }
       if let Some(sprite) = visuals.sprite {
         let sprite_handle = get_sprite_handle(sprite);
         if let Some(image) = sprite_3d_params.images.get(&sprite_handle) {
-          let image_height = image.height();
-
-          c.entity(e)
-           .insert((
-                     bevy_sprite3d::Sprite3d { image: sprite_handle,
-                                               pixels_per_metre: image_height as f32,
-                                               double_sided: true,
-                                               alpha_mode: AlphaMode::Blend,
-                                               unlit: visuals.unlit,
-                                               transform: Transform::from_xyz(5.0, 5.0,
-                                                                              5.0),
-                                               ..default() }.bundle(&mut sprite_3d_params)
-                     // SpatialBundle { ..default() }
-                   ));
+          let pixels_per_metre = image.height() as f32;
+          let builder = bevy_sprite3d::Sprite3dBuilder { image: sprite_handle,
+                                                         pixels_per_metre,
+                                                         double_sided: true,
+                                                         alpha_mode: AlphaMode::Blend,
+                                                         unlit: visuals.unlit,
+                                                         ..default() };
+          let bundle = builder.bundle(&mut sprite_3d_params);
+          c.entity(e).insert(bundle);
           // println("asdfasdf");
         } else {
           visuals.done = false;
@@ -437,9 +472,10 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
       if let Some((material, gen_mesh)) = visuals.material_mesh {
         let material = get_material_handle(material);
         let mesh = get_mesh_handle(gen_mesh);
-        c.entity(e).insert(PbrBundle { material,
-                                       mesh,
-                                       ..default() });
+        c.entity(e).insert((Mesh3d(mesh), MeshMaterial3d(material)));
+        // c.entity(e).insert(PbrBundle { material,
+        //                                mesh,
+        //                                ..default() });
       }
     }
   }
@@ -455,7 +491,7 @@ pub fn set_prev_loc(mut c: Commands,
     }
   }
 }
-pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
+pub fn position_sprite_billboards(camq: Single<&Transform, With<Camera3d>>,
                                   mut c: Commands,
                                   time: ResMut<TimeTicks>,
                                   frame_timestamp: ResMut<FrameTimeStamp>,
@@ -467,31 +503,27 @@ pub fn position_sprite_billboards(camq: Query<&Transform, With<Camera3d>>,
                                          Without<Camera3d>)>) {
   // a frame every TICK_TIME ticks
   let time_since = time.0 - frame_timestamp.0;
-  if let Ok(cam_transform) = camq.get_single() {
-    for (e, loc, oprevloc, mut transform) in &mut billboardsq {
-      // let dir = Vec3 { y: 0.0,
-      //                  ..(transform.translation - cam_transform.translation) };
-      let dir = transform.translation - cam_transform.translation;
-      let updir = cam_transform.up();
-      // let x = Some(42);
+  let cam_transform = **camq;
+  for (e, loc, oprevloc, mut transform) in &mut billboardsq {
+    // let dir = Vec3 { y: 0.0,
+    //                  ..(transform.translation - cam_transform.translation) };
+    let dir = transform.translation - cam_transform.translation;
+    let updir = cam_transform.up();
+    // let x = Some(42);
 
-      // let Some(val @ 42 | val @ 43) = x;
+    // let Some(val @ 42 | val @ 43) = x;
 
-      // let Some(&PrevLocation(prevloc))k = oprevloc ... else ..
-      let prevloc = oprevloc.map_or(*loc, |&PrevLocation(loc)| loc);
+    // let Some(&PrevLocation(prevloc))k = oprevloc ... else ..
+    let prevloc = oprevloc.map_or(*loc, |&PrevLocation(loc)| loc);
 
-      // let prevloc = oprevloc.map_or(*loc,);
-      // let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
-      let frac = (time_since as f32 / FRAME_TIME_TICKS as f32).min(1.0);
-      let translation = Vec3::from(prevloc).lerp(Vec3::from(*loc), frac) + Vec3::splat(0.5);
-      *transform = Transform::from_translation(translation).looking_to(dir, updir);
-    }
+    // let prevloc = oprevloc.map_or(*loc,);
+    // let curr_loc = curr_locs.get(&e).copied().unwrap_or(loc);
+    let frac = (time_since as f32 / FRAME_TIME_TICKS as f32).min(1.0);
+    let translation = Vec3::from(prevloc).lerp(Vec3::from(*loc), frac) + Vec3::splat(0.5);
+    *transform = Transform::from_translation(translation).looking_to(dir, updir);
   }
 }
 
-fn block_entity(loc: Location, block_type: BlockType) -> impl Bundle {
-  (loc, block_type, NewBlock)
-}
 #[derive(Component, Clone)]
 struct RandomMovement;
 #[derive(Component, Clone)]
@@ -634,7 +666,6 @@ impl Faction {
 }
 
 // type Spawnable = fn() -> Box<dyn FnOnce(&mut Commands, Pos)>;
-struct Spawnable(fn(&mut Commands, Location));
 // impl<B: Bundle> From<B> for Box<dyn FnOnce(&mut Commands, Pos)> {
 //   fn from(b: B) -> Self {
 //     Box::new(|commands, pos| {
@@ -946,6 +977,7 @@ impl From<BlockTexture> for u32 {
   fn from(block_texture: BlockTexture) -> u32 { block_texture as u32 }
 }
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Assoc, Component)]
+#[require(Location)]
 #[func(pub const fn textures(&self) -> [BlockTexture; 3])]
 #[repr(u8)]
 pub enum BlockType {
@@ -984,7 +1016,9 @@ impl From<BlockType> for u8 {
 impl From<BlockType> for u32 {
   fn from(block_type: BlockType) -> u32 { block_type as u32 }
 }
-
+fn block_entity(loc: Location, block_type: BlockType) -> impl Bundle {
+  (loc, block_type, NewBlock)
+}
 // enum WorldLocationKind{
 //   Wall,Floor,Air
 // }
@@ -1255,24 +1289,22 @@ fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTi
 // }
 
 fn player_movement(keys: Res<ButtonInput<KeyCode>>,
-                   mut player_query: Query<&mut TryToMove, With<Player>>) {
-  if let Ok(mut player_trytomove) = player_query.get_single_mut() {
-    // Define key-to-direction mapping
-    let dir = [(KeyCode::KeyW, Dir::North),
-               (KeyCode::KeyA, Dir::West),
-               (KeyCode::KeyS, Dir::South),
-               (KeyCode::KeyD, Dir::East)].iter()
-                                          .find_map(|&(key, dir)| {
-                                                      if keys.pressed(key) {
-                                                        Some(dir)
-                                                      } else {
-                                                        None
-                                                      }
-                                                    })
-                                          .unwrap_or(Dir::Here);
+                   mut player_trytomove: Single<&mut TryToMove, With<Player>>) {
+  // Define key-to-direction mapping
+  let dir = [(KeyCode::KeyW, Dir::North),
+             (KeyCode::KeyA, Dir::West),
+             (KeyCode::KeyS, Dir::South),
+             (KeyCode::KeyD, Dir::East)].iter()
+                                        .find_map(|&(key, dir)| {
+                                                    if keys.pressed(key) {
+                                                      Some(dir)
+                                                    } else {
+                                                      None
+                                                    }
+                                                  })
+                                        .unwrap_or(Dir::Here);
 
-    *player_trytomove = TryToMove(dir);
-  }
+  **player_trytomove = TryToMove(dir);
 }
 
 fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
@@ -1338,51 +1370,48 @@ fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
 //   }
 // }
 
-fn camera_follow_player(mut camq: Query<(&mut Camera3d, &mut Transform), Without<Player>>,
+fn camera_follow_player(mut camq: Single<(&mut Camera3d, &mut Transform),
+                               Without<Player>>,
                         world_locs: Res<WorldLocationMap>,
                         mut cam_target_pos: Local<Vec3>,
                         keys: Res<ButtonInput<KeyCode>>,
-                        playerq: Query<&Transform, With<Player>>) {
-  if let Ok(player_transform) = playerq.get_single()
-     && let Ok((mut cam, mut cam_transform)) = camq.get_single_mut()
-  {
-    // println("asdfasdfsad");
-    cam_transform.translation = player_transform.translation + Vec3::Y * 15.0;
-    // *cam_transform.rotation = *Quat::from_rotation_x(-PI * 0.5);
-    // Rotate the camera to look down at the player and add 180 degrees around Y-axis
-    let base_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2); // -PI/2 for looking down
-    let y_rotation = Quat::from_rotation_y(std::f32::consts::PI); // 180 degrees around Y-axis
-    cam_transform.rotation = y_rotation * base_rotation; // Combine rotations
+                        playerq: Single<&Transform, With<Player>>) {
+  let player_transform = **playerq;
+  let (mut cam, mut cam_transform) = camq.into_inner();
+  // println("asdfasdfsad");
+  cam_transform.translation = player_transform.translation + Vec3::Y * 15.0;
+  // *cam_transform.rotation = *Quat::from_rotation_x(-PI * 0.5);
+  // Rotate the camera to look down at the player and add 180 degrees around Y-axis
+  let base_rotation = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2); // -PI/2 for looking down
+  let y_rotation = Quat::from_rotation_y(std::f32::consts::PI); // 180 degrees around Y-axis
+  cam_transform.rotation = y_rotation * base_rotation; // Combine rotations
 
-    // cam.target_focus = player_transform.translation;
-    // *targetpos = Location::from(*cam_target_pos);
-    // *posindicatortransform =
-    //   Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
-  }
+  // cam.target_focus = player_transform.translation;
+  // *targetpos = Location::from(*cam_target_pos);
+  // *posindicatortransform =
+  //   Transform::from_translation(*cam_target_pos).with_scale(Vec3::splat(0.1));
 }
 
 #[derive(Component)]
 struct Sun;
-pub fn sun_movement(mut camq: Query<&GlobalTransform, With<Camera3d>>,
+pub fn sun_movement(mut camq: Single<&GlobalTransform, With<Camera3d>>,
                     time: Res<Time>,
-                    mut sunq: Query<&mut Transform, With<Sun>>) {
-  if let Ok(camera_globaltransform) = camq.get_single()
-     && let Ok(mut sun_transform) = sunq.get_single_mut()
-  {
-    let rot_time_seconds = 10.0;
-    let time_seconds = time.elapsed_seconds();
-    let rot_radians = (time_seconds / rot_time_seconds) * TAU;
+                    mut sunq: Single<&mut Transform, With<Sun>>) {
+  let camera_globaltransform = *camq;
+  let mut sun_transform = sunq.into_inner();
+  let rot_time_seconds = 10.0;
+  let time_seconds = time.elapsed_secs();
+  let rot_radians = (time_seconds / rot_time_seconds) * TAU;
 
-    let cam_pos = camera_globaltransform.translation();
-    let new_sun_pos = cam_pos
-                      + Vec3 { x: rot_radians.cos() * 100.0,
-                               y: 60.0,
-                               z: rot_radians.sin() * 100.0 };
+  let cam_pos = camera_globaltransform.translation();
+  let new_sun_pos = cam_pos
+                    + Vec3 { x: rot_radians.cos() * 100.0,
+                             y: 60.0,
+                             z: rot_radians.sin() * 100.0 };
 
-    sun_transform.translation = new_sun_pos;
-    let dir = new_sun_pos - cam_pos;
-    sun_transform.look_to(dir, Vec3::Y);
-  }
+  sun_transform.translation = new_sun_pos;
+  let dir = new_sun_pos - cam_pos;
+  sun_transform.look_to(dir, Vec3::Y);
 }
 const ADD_ONE: fn(i32) -> i32 = |x| x + 1;
 
@@ -1567,87 +1596,89 @@ pub struct UIData {
 const UI_BACKGROUND_COLOR: Color = Color::srgba(0.9, 0.9, 0.7, 1.0);
 const UI_BORDER_COLOR: Color = Color::srgba(0.8, 0.8, 0.7, 1.0);
 const UI_FONT_COLOR: Color = Color::srgba(0.3, 0.3, 0.3, 1.0);
-pub fn common_style(sb: &mut StyleBuilder) {
-  sb.font_size(32.0)
-    .display(Display::Block)
-    .border(3)
-    .border_color(UI_BORDER_COLOR)
-    .background_color(UI_BACKGROUND_COLOR)
-    .position(bevy::ui::PositionType::Absolute)
-    .color(UI_FONT_COLOR)
+comment! {
+  pub fn common_style(sb: &mut StyleBuilder) {
+    sb.font_size(32.0)
+      .display(Display::Block)
+      .border(3)
+      .border_color(UI_BORDER_COLOR)
+      .background_color(UI_BACKGROUND_COLOR)
+      .position(bevy::ui::PositionType::Absolute)
+      .color(UI_FONT_COLOR)
     // .margin(5)
     // .padding(3)
-    .pointer_events(false);
-}
-#[derive(Clone, PartialEq)]
-pub struct UIPopup {
-  pub style: fn(&mut StyleBuilder),
-  pub display_text_fn: fn(&UIData) -> Vec<String>
-}
-impl ViewTemplate for UIPopup {
-  type View = impl View;
-  fn create(&self, cx: &mut Cx) -> Self::View {
-    let &Self { display_text_fn,
-                style } = self;
-    let uidata = cx.use_resource::<UIData>();
-    let display_text = display_text_fn(uidata);
-    Element::<NodeBundle>::new().style((common_style, style))
-                                .children(intersperse_newline(display_text.clone()))
+      .pointer_events(false);
   }
-}
-// const MESSAGE_SHOW_TIME_TICKS: u32 = 600;
-fn ui(mut c: Commands,
-      // camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
-      playerq: Query<(Entity, &Player, &Transform)>,
-      mut ui_data: ResMut<UIData>,
-      time: Res<TimeTicks>,
-      view_root_q: Query<Entity, With<ViewRoot>>) {
-  if view_root_q.is_empty() {
-    let game_over_popup = UIPopup { style: |sb| {
-                                      sb.font_size(55.0)
-                                        .justify_self(JustifySelf::Center)
-                                        .top(Val::Percent(50.0));
-                                    },
-                                    display_text_fn: |&UIData { game_over, .. }| {
-                                      if game_over {
-                                        vec!["Game Over".to_string()]
-                                      } else {
-                                        default()
-                                      }
-                                    } };
-    let note_popup = UIPopup { style: |sb| {
-                                 sb.justify_self(JustifySelf::Center)
-                                   .top(Val::Percent(50.0));
-                               },
-                               display_text_fn: |uidata| uidata.note.clone() };
-    let infobox = UIPopup { style: |sb| {
-                              sb.left(0).top(0);
-                            },
-                            display_text_fn: |uidata| uidata.infobox_data.clone() };
-    let root = vec![ViewChild::new(note_popup),
-                    ViewChild::new(infobox),
-                    ViewChild::new(game_over_popup),];
-    c.spawn(root.to_root());
+  #[derive(Clone, PartialEq)]
+  pub struct UIPopup {
+    pub style: fn(&mut StyleBuilder),
+    pub display_text_fn: fn(&UIData) -> Vec<String>
   }
-  if let Ok((player_entity, player, player_transform)) = playerq.get_single() {
-    let player_pos = player_transform.translation;
-    // let player_light_on = player.light_on;
-    let infobox_data = map(ToString::to_string, [format!("{:.1}", player_pos).as_str(),
-                                                 // format!("you've found {} notes", player.notes_found.len()).as_str(),
-                                                 // format!("light on: {player_light_on}",).as_str(),
-                                                 "w,a,s,d: move",
-                                                 "f: toggle flashlight"]) // .chain(map(|(item, n)| {
-                                                                         //              format!("{} {:?}s", n, item)
-                                                                         //            },
-                                                                         //            player_inventory.0.clone()))
-                                                                         .collect();
+  impl ViewTemplate for UIPopup {
+    type View = impl View;
+    fn create(&self, cx: &mut Cx) -> Self::View {
+      let &Self { display_text_fn,
+                  style } = self;
+      let uidata = cx.use_resource::<UIData>();
+      let display_text = display_text_fn(uidata);
+      Element::<NodeBundle>::new().style((common_style, style))
+                                  .children(intersperse_newline(display_text.clone()))
+    }
+  }
+  // const MESSAGE_SHOW_TIME_TICKS: u32 = 600;
+  fn ui(mut c: Commands,
+        // camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
+        playerq: Query<(Entity, &Player, &Transform)>,
+        mut ui_data: ResMut<UIData>,
+        time: Res<TimeTicks>,
+        view_root_q: Query<Entity, With<ViewRoot>>) {
+    if view_root_q.is_empty() {
+      let game_over_popup = UIPopup { style: |sb| {
+        sb.font_size(55.0)
+          .justify_self(JustifySelf::Center)
+          .top(Val::Percent(50.0));
+      },
+                                      display_text_fn: |&UIData { game_over, .. }| {
+                                        if game_over {
+                                          vec!["Game Over".to_string()]
+                                        } else {
+                                          default()
+                                        }
+                                      } };
+      let note_popup = UIPopup { style: |sb| {
+        sb.justify_self(JustifySelf::Center)
+          .top(Val::Percent(50.0));
+      },
+                                 display_text_fn: |uidata| uidata.note.clone() };
+      let infobox = UIPopup { style: |sb| {
+        sb.left(0).top(0);
+      },
+                              display_text_fn: |uidata| uidata.infobox_data.clone() };
+      let root = vec![ViewChild::new(note_popup),
+                      ViewChild::new(infobox),
+                      ViewChild::new(game_over_popup),];
+      c.spawn(root.to_root());
+    }
+    if let Ok((player_entity, player, player_transform)) = playerq.get_single() {
+      let player_pos = player_transform.translation;
+      // let player_light_on = player.light_on;
+      let infobox_data = map(ToString::to_string, [format!("{:.1}", player_pos).as_str(),
+                                                   // format!("you've found {} notes", player.notes_found.len()).as_str(),
+                                                   // format!("light on: {player_light_on}",).as_str(),
+                                                   "w,a,s,d: move",
+                                                   "f: toggle flashlight"]) // .chain(map(|(item, n)| {
+      //              format!("{} {:?}s", n, item)
+      //            },
+      //            player_inventory.0.clone()))
+        .collect();
 
-    let current_time = time.0;
-    let current_time_ticks = current_time;
-    let old_ui_data = ui_data.clone();
-    *ui_data = UIData { current_time_ticks,
-                        infobox_data,
-                        ..old_ui_data };
+      let current_time = time.0;
+      let current_time_ticks = current_time;
+      let old_ui_data = ui_data.clone();
+      *ui_data = UIData { current_time_ticks,
+                          infobox_data,
+                          ..old_ui_data };
+    }
   }
 }
 
@@ -1703,7 +1734,7 @@ const CAMERA_TARGET_LIGHT: PointLight =
 
 #[derive(Component)]
 struct Note(&'static str);
-#[derive(States, Default, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 enum GameState {
   Running,
   #[default]
@@ -1869,6 +1900,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
      //                  ..default() }
     );
   c.spawn(camera);
+  // Pointer
   // light
   c.spawn(PointLightBundle { point_light: PointLight { shadows_enabled: true,
                                                        ..default() },
@@ -1930,6 +1962,18 @@ impl From<BlockType> for WorldVoxel {
 //   voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
 //   voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
 // }
+
+struct Spawnable(fn(&mut Commands, Location));
+
+type Template = fn(&mut Commands, Vec3);
+macro_rules! template {
+  ($name:ident, $bundle:expr) => {
+    static $name: Template = |c: &mut Commands, pos: Vec3| {
+      c.spawn($bundle).insert(Transform::from_translation(pos));
+    };
+  };
+}
+template!(SNOWMAN, basic_animal("snowman", '⛄'));
 
 comment! {
   macro_rules! create_spawnables {
@@ -2398,20 +2442,21 @@ fn every_n_ticks<const N: usize>(time: Res<TimeTicks>) -> bool { time.0 as usize
 pub fn main() {
   let voxel_material = MyMaterial::BLOCKS.val();
   let address_mode = ImageAddressMode::ClampToBorder;
-  let default_sampler = ImageSamplerDescriptor { mag_filter: ImageFilterMode::Nearest,
-                                                 min_filter: ImageFilterMode::Linear,
-                                                 mipmap_filter: ImageFilterMode::Linear,
-                                                 // address_mode_u: address_mode,
-                                                 //                        address_mode_v: address_mode,
-                                                 //                        address_mode_w: address_mode,
-                                                 // compare:
-                                                 //   Some(ImageCompareFunction::Less),
-                                                 // lod_min_clamp: 10.0,
-                                                 // lod_max_clamp: 100.0,
-                                                 // border_color:
-                                                 //   Some(ImageSamplerBorderColor::TransparentBlack),
-                                                 // anisotropy_clamp: 1000,
-                                                 ..default() };
+  // let default_sampler = ImageSamplerDescriptor { mag_filter: ImageFilterMode::Nearest,
+  //                                                min_filter: ImageFilterMode::Linear,
+  //                                                mipmap_filter: ImageFilterMode::Linear,
+  //                                                // address_mode_u: address_mode,
+  //                                                //                        address_mode_v: address_mode,
+  //                                                //                        address_mode_w: address_mode,
+  //                                                // compare:
+  //                                                //   Some(ImageCompareFunction::Less),
+  //                                                // lod_min_clamp: 10.0,
+  //                                                // lod_max_clamp: 100.0,
+  //                                                // border_color:
+  //                                                //   Some(ImageSamplerBorderColor::TransparentBlack),
+  //                                                // anisotropy_clamp: 1000,
+  //                                                ..default() };
+
   App::new()
     .add_plugins((
       EmbeddedAssetPlugin::default(),
@@ -2426,13 +2471,14 @@ pub fn main() {
       //   }),
       //   ..default()
       // })
-        .set(ImagePlugin{default_sampler})
+        // .set(ImagePlugin{default_sampler})
         .set(WindowPlugin {
           primary_window: Some(Window {
             // resolution: WindowResolution
 
 
             mode:WindowMode::Windowed,
+
 
             present_mode: bevy::window::PresentMode::AutoVsync,
             title: "bevy spooky game".to_string(),
@@ -2469,12 +2515,12 @@ pub fn main() {
                    set_frame_timestamp,
                    player_movement,
                    random_movement,
-                   movement).run_if(every_n_ticks::<FRAME_TIME_TICKS>),
+                   movement).chain().run_if(every_n_ticks::<FRAME_TIME_TICKS>),
                   position_sprite_billboards,
                   camera_follow_player,
                   // proximity_system,
                   visuals,
-                  ui,
+                  // ui,
                   sun_movement,
                   close_on_esc,
                  ).chain())
