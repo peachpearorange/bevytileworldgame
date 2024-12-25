@@ -20,21 +20,29 @@
 
 // pub mod bundletree;
 // pub mod ui;
-mod dialogue;
-mod mycommand;
+// mod dialogue;
+// mod mycommand;
 
 // use crate::dialogue::DialogueTree
+
+use noise::NoiseFn;
 use {bevy::{app::AppExit,
             asset::{AssetServer, Handle},
-            core_pipeline::bloom::{BloomCompositeMode, BloomPrefilterSettings,
-                                   BloomSettings},
+            core_pipeline::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
+            ecs::{entity::EntityHashMap,
+                  observer::Observers,
+                  query::{QueryData, QueryFilter},
+                  system::SystemParam},
+            image::ImageAddressMode,
+            input::keyboard::KeyboardInput,
             math::primitives,
-            pbr::{NotShadowCaster, NotShadowReceiver, StandardMaterial},
+            pbr::{DistanceFog, NotShadowCaster, NotShadowReceiver, StandardMaterial},
             prelude::{Name, *},
-            // render::texture::{ImageAddressMode, ImageFilterMode},
-            utils::{HashMap, HashSet}},
+            render::view::screenshot::{save_to_disk, Screenshot},
+            utils::{HashMap, HashSet},
+            window::WindowMode},
      bevy_embedded_assets::*,
-     bevy_panorbit_camera::PanOrbitCamera,
+     // bevy_panorbit_camera::PanOrbitCamera,
      // bevy_quill::{prelude::*, QuillPlugin, ViewChild},
      // bevy_quill_overlays::QuillOverlaysPlugin,
      bevy_voxel_world::prelude::*,
@@ -46,8 +54,9 @@ use {bevy::{app::AppExit,
      std::{cmp::Ordering,
            f32::consts::{PI, TAU},
            mem::variant_count,
-           sync::Arc},
-     worldgen::spawn_world};
+           ops::DerefMut,
+           sync::Arc}};
+
 // ui::UIData
 
 mod mycolor {
@@ -976,7 +985,7 @@ impl From<BlockTexture> for u8 {
 impl From<BlockTexture> for u32 {
   fn from(block_texture: BlockTexture) -> u32 { block_texture as u32 }
 }
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Assoc, Component)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Assoc, Component, Hash, Default)]
 #[require(Location)]
 #[func(pub const fn textures(&self) -> [BlockTexture; 3])]
 #[repr(u8)]
@@ -989,6 +998,7 @@ pub enum BlockType {
   Rocks,
   #[assoc(textures = [BlockTexture::Snow, BlockTexture::Snow, BlockTexture::Dirt])]
   Snow,
+  #[default]
   #[assoc(textures = BlockTexture::Stone.all_same())]
   Stone,
   #[assoc(textures = BlockTexture::Sand.all_same())]
@@ -1149,7 +1159,99 @@ impl WorldLocationMap {
   }
 }
 
-mod worldgen;
+// const WIDTH: usize = 256;
+// const HEIGHT: usize = 64;
+// const LENGTH: usize = 256;
+
+type SpawnFn = Box<dyn FnOnce(&mut Commands, Location)>;
+
+#[derive(Default)]
+struct WorldTile {
+  block: Option<BlockType>,
+  entities: Vec<SpawnFn>,
+  entities_above: Vec<SpawnFn>
+}
+
+impl WorldTile {
+  fn empty() -> Self { default() }
+  fn block(block_type: BlockType) -> Self {
+    Self { block: Some(block_type),
+           ..default() }
+  }
+  fn block_with_entities_above(block_type: BlockType, entities_above: Vec<SpawnFn>) -> Self {
+    Self { block: Some(block_type),
+           entities_above,
+           ..default() }
+  }
+  fn entities(entities: Vec<SpawnFn>) -> Self {
+    Self { entities,
+           ..default() }
+  }
+}
+
+fn bundle_spawn<B: Bundle>(b: B) -> SpawnFn {
+  Box::new(move |c: &mut Commands, loc| {
+    c.spawn(b).insert(loc);
+  })
+}
+
+const WORLD_HEIGHT: u32 = 10;
+fn generate_tile(noise: &Perlin, pos: IVec3) -> WorldTile {
+  let IVec3 { x, y, z } = pos;
+  let loc = Location::from(pos);
+  let wanderer = bundle_spawn((Name::new("Wanderer"),
+                               TryToMove::default(),
+                               RandomMovement,
+                               Visuals::sprite(MySprite::PLAYER)));
+  let tree = bundle_spawn((Name::new("tree"), Visuals::sprite(MySprite::TREE)));
+  let noise3d = |n: f64| noise.get([x as f64 * n, y as f64 * n, z as f64 * n]);
+  let noise2d = |n: f64| noise.get([x as f64 * n, z as f64 * n]);
+  let elevnoise = |scale: f64, n: f64| scale * noise.get([x as f64 * n, z as f64 * n]);
+  // https://www.redblobgames.com/maps/terrain-from-noise/
+  let elevation = (
+    elevnoise(5.0, 0.03)
+    // + elevnoise(0.01, 20.0)
+    // + elevnoise(20.0, 0.01)
+  ) as i32;
+  let prob = |p| rand::random::<f32>() < p;
+  // let surface_height = 5;
+  let cave = noise.get([x as f64 / 20.0, y as f64 / 20.0, z as f64 / 20.0]) > 0.6;
+  let height = elevation as i32;
+
+  if cave || y > height {
+    WorldTile::empty()
+  } else if y == height {
+    if prob(0.03) {
+      WorldTile::block_with_entities_above(BlockType::Grass, vec![tree])
+    } else if prob(0.01) {
+      WorldTile::block_with_entities_above(BlockType::Grass, vec![wanderer])
+    } else {
+      WorldTile::block(BlockType::Grass)
+    }
+  } else if y > height - 3 {
+    WorldTile::block(BlockType::Dirt)
+  } else {
+    WorldTile::block(BlockType::Stone)
+  }
+}
+
+pub fn spawn_world(mut c: &mut Commands, mut blocksparam: BlocksParam) {
+  let noise = Perlin::new(5);
+  let bounds = IVec3::new(100, 10, 100);
+  let coords = cuboid_coords(bounds);
+  for (pos, tile) in coords.map(move |pos| (pos, generate_tile(&noise, pos))) {
+    let loc = Location::from(pos);
+    if let Some(block) = tile.block {
+      blocksparam.set(loc, Some(block));
+    }
+    for spawn in tile.entities {
+      spawn(&mut c, loc);
+    }
+    for spawn in tile.entities_above {
+      spawn(&mut c, loc.above());
+    }
+  }
+}
 
 // fn player_movement(
 //     keys: Res<ButtonInput<KeyCode>>,
@@ -1174,100 +1276,214 @@ mod worldgen;
 //     }
 // }
 
-pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
-                          mut playerq: Query<&Location, With<Player>>,
-                          added: Query<(Entity, &Location, Option<&BlockType>),
-                                Added<Location>>,
-                          mut removed_locs: RemovedComponents<Location>,
-                          moved: Query<(Entity, &Location), Changed<Location>>,
+// #[derive(Resource)]
+// struct LocationsCache(EntityHashMap<Location>);
 
-                          mut voxel_world: VoxelWorld<MyMainWorld>) {
-  let WorldLocationMap { blocks,
-                         entities,
-                         player_loc,
-                         entity_positions } = world_locs.as_mut();
+// #[derive(SystemParam)]
+// struct LocationsParam<'w, 's> {
+//   locsq: Query<'w, 's, (Entity, &'static mut Location)>,
+//   cache: ResMut<'w, LocationsCache>
+// }
+// impl<'w, 's> LocationsParam<'w, 's> {
+//   fn set(&mut self, e: Entity, loc: Location) {}
+// }
+// #[derive(SystemParam)]
+// struct BlocksParam<'w, 's> {
+//   locsparam: LocationsParam<'w, 's>,
+//   blocks: Query<'w, 's, (Entity, &'static mut BlockType, &'static Location)>,
+//   voxel_world: VoxelWorld<'w, MyMainWorld>
+// }
 
-  // Update player location
-  *player_loc = playerq.iter().next().copied();
+// impl<'w, 's> BlocksParam<'w, 's> {
+//   fn set(&mut self, loc: Location, block_type: BlockType) {}
+// }
+use bevy_mod_index::prelude::*;
 
-  // Handle new/added entities
-  for (e, &loc, block_type) in &added {
-    if let Some(&bt) = block_type {
-      blocks.insert(loc, bt);
-      voxel_world.set_voxel(loc.0, bt.into());
+// struct Location;
+impl IndexInfo for Location {
+  type Component = Location;
+  type Value = Self::Component;
+  type Storage = HashmapStorage<Self>;
+  const REFRESH_POLICY: IndexRefreshPolicy = IndexRefreshPolicy::WhenRun;
+  fn value(c: &Self::Component) -> Self::Value { *c }
+}
+
+// #[derive(Resource, Default)]
+// struct LocationsCache(HashMap<Location, HashSet<Entity>>);
+
+// #[derive(SystemParam)]
+// struct LocationsParam<'w, 's> {
+//   locsq: Query<'w, 's, (Entity, &'static mut Location)>,
+//   cache: ResMut<'w, LocationsCache>
+// }
+#[derive(SystemParam)]
+struct BlocksParam<'w, 's> {
+  // locsparam: LocationsParam<'w, 's>,
+  locsindex: Index<'w, 's, Location>,
+  blocks: Query<'w, 's, (Entity, &'static mut BlockType)>,
+  voxel_world: VoxelWorld<'w, MyMainWorld>,
+  commands: Commands<'w, 's>
+}
+
+impl<'w, 's> BlocksParam<'w, 's> {
+  /// Sets or removes the block type for the given location. Spawns an entity if none exists.
+  fn set(&mut self, loc: Location, block_type: Option<BlockType>) {
+    let preexistingentities = self.locsindex.lookup(&loc);
+    let preexistingblockentity = preexistingentities.find(|&e|  self.blocks.contains(e));
+    if let Some(block_entity) = preexistingblockentity {
+    } else {
     }
-    entities.entry(loc).or_default().insert(e);
-    entity_positions.insert(e, loc);
-  }
-
-  // Handle removed entities/blocks
-  for e in removed_locs.read() {
-    if let Some(loc) = entity_positions.remove(&e) {
-      if let Some(entity_set) = entities.get_mut(&loc) {
-        entity_set.remove(&e);
-        if entity_set.is_empty() {
-          entities.remove(&loc);
+    match (block_type,
+           self.locsparam
+               .find_entities_by_location(&loc)
+               .map(|entities| entities.clone()))
+    {
+      (None, None) => {
+        // Nothing to do if there is no block type and no entities exist.
+      }
+      (None, Some(entities)) => {
+        // Despawn all entities at the location and remove them from the cache.
+        for entity in entities {
+          self.commands.entity(entity).despawn();
+          self.locsparam.remove(entity, &loc);
         }
       }
-
-      if blocks.remove(&loc).is_some() {
-        voxel_world.set_voxel(loc.0, WorldVoxel::Unset);
+      (Some(new_block_type), None) => {
+        // Spawn a new entity with the given block type and location.
+        let new_entity = self.commands.spawn((new_block_type, loc.clone())).id();
+        self.locsparam.add(new_entity, loc);
       }
-    }
-  }
-
-  // Handle moved entities/blocks
-  for (e, &new_loc) in &moved {
-    // First handle the old location if it exists
-    if let Some(old_loc) = entity_positions.get(&e).copied() {
-      if let Some(entity_set) = entities.get_mut(&old_loc) {
-        entity_set.remove(&e);
-        if entity_set.is_empty() {
-          entities.remove(&old_loc);
+      (Some(new_block_type), Some(entities)) => {
+        // Update the block type of the first entity at the location.
+        if let Some(&entity) = entities.iter().next() {
+          if let Ok((_, mut block)) = self.blocks.get_mut(entity) {
+            *block = new_block_type;
+          } else {
+            panic!("Entity found in cache but not in query: {:?}", entity);
+          }
         }
       }
-
-      comment! {
-        if blocks.remove(&old_loc).is_some() {
-          voxel_world.set_voxel(old_loc.0, WorldVoxel::Unset);
-        }
-      }
-    }
-
-    // Then handle the new location
-    entities.entry(new_loc).or_default().insert(e);
-    entity_positions.insert(e, new_loc);
-
-    if let Some(&bt) = blocks.get(&new_loc) {
-      voxel_world.set_voxel(new_loc.0, bt.into());
     }
   }
 }
 
-fn maintain_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>,
-                        mut world_locs: ResMut<WorldLocationMap>) {
-  // Then we can use the `u8` consts to specify the type of voxel
+// #[derive(QueryData)]
+// #[query_data(mutable)]
+// struct QueryBlocks {
+//     component_a: &'static mut ComponentA,
+// }
+// pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
+//                           mut playerq: Option<Single<&Location, With<Player>>>,
+//                           // mut er_on_remove: EventReader<OnRemove>,
+//                           added: Query<(Entity, &Location, Option<&BlockType>),
+//                                 Added<Location>>,
+//                           mut removed_locs: RemovedComponents<Location>,
+//                           moved: Query<(Entity, &Location), Changed<Location>>,
 
-  // 20 by 20 floor
-  for x in -10..10 {
-    for z in -10..10 {
-      voxel_world.set_voxel(IVec3::new(x, -1, z), BlockType::Snow.into());
-      // Grassy floor
-    }
-  }
+//                           mut voxel_world: VoxelWorld<MyMainWorld>) {
+//   // SystemParam
+//   // QueryData
+//   // let commands:Commands;
+//   //  commands.spawn(Screenshot::primary_window())
+//   //     .observe(save_to_disk("screenshot.png"));
+//   // save_to_disk
+//   // Screenshot
+//   // for k in er_on_remove.read() {}
+//   // Observer
+//   // KeyboardInput
+//   // Event
+//   // OnRemove
+//   // Changed
+//   world_locs.player_loc = playerq.as_deref().copied().copied();
+//   let WorldLocationMap { blocks,
+//                          entities,
+//                          player_loc,
+//                          entity_positions } = world_locs.as_mut();
 
-  // Some bricks
-  // voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
-  // voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
-  // voxel_world.set_voxel(IVec3::new(1, 0, 0), BlockType::Snow.into());
-  // voxel_world.set_voxel(IVec3::new(0, 0, 1), BlockType::Snow.into());
-  // voxel_world.set_voxel(IVec3::new(0, 0, -1), BlockType::Stone.into());
-  // voxel_world.set_voxel(IVec3::new(-1, 0, 0), BlockType::Stone.into());
-  // voxel_world.set_voxel(IVec3::new(-2, 0, 0), BlockType::Sand.into());
-  // voxel_world.set_voxel(IVec3::new(-1, 1, 0), BlockType::Bricks.into());
-  // voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
-  // voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
-}
+//   // Update player location
+//   *player_loc = playerq.iter().next().copied();
+
+//   // Handle new/added entities
+//   for (e, &loc, block_type) in &added {
+//     if let Some(&bt) = block_type {
+//       blocks.insert(loc, bt);
+//       let v: WorldVoxel<BlockType> = WorldVoxel::Solid(bt);
+//       voxel_world.set_voxel(loc.0, v);
+//     }
+//     entities.entry(loc).or_default().insert(e);
+//     entity_positions.insert(e, loc);
+//   }
+
+//   // Handle removed entities/blocks
+//   for e in removed_locs.read() {
+//     if let Some(loc) = entity_positions.remove(&e) {
+//       if let Some(entity_set) = entities.get_mut(&loc) {
+//         entity_set.remove(&e);
+//         if entity_set.is_empty() {
+//           entities.remove(&loc);
+//         }
+//       }
+
+//       if blocks.remove(&loc).is_some() {
+//         voxel_world.set_voxel(loc.0, WorldVoxel::Unset);
+//       }
+//     }
+//   }
+
+//   // Handle moved entities/blocks
+//   for (e, &new_loc) in &moved {
+//     // First handle the old location if it exists
+//     if let Some(old_loc) = entity_positions.get(&e).copied() {
+//       if let Some(entity_set) = entities.get_mut(&old_loc) {
+//         entity_set.remove(&e);
+//         if entity_set.is_empty() {
+//           entities.remove(&old_loc);
+//         }
+//       }
+
+//       comment! {
+//         if blocks.remove(&old_loc).is_some() {
+//           voxel_world.set_voxel(old_loc.0, WorldVoxel::Unset);
+//         }
+//       }
+//     }
+
+//     // Then handle the new location
+//     entities.entry(new_loc).or_default().insert(e);
+//     entity_positions.insert(e, new_loc);
+
+//     // bevy::math::IVec3
+//     if let Some(&bt) = blocks.get(&new_loc) {
+//       voxel_world.set_voxel(new_loc.0, bt.into());
+//     }
+//   }
+// }
+
+// fn maintain_voxel_scene(mut voxel_world: VoxelWorld<MyMainWorld>,
+//                         mut world_locs: ResMut<WorldLocationMap>) {
+//   // Then we can use the `u8` consts to specify the type of voxel
+
+//   // 20 by 20 floor
+//   for x in -10..10 {
+//     for z in -10..10 {
+//       voxel_world.set_voxel(IVec3::new(x, -1, z), BlockType::Snow.into());
+
+//       // Grassy floor
+//     }
+//   }
+
+//   // Some bricks
+//   // voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
+//   // voxel_world.set_voxel(IVec3::new(0, 0, 0), BlockType::Snow.into());
+//   // voxel_world.set_voxel(IVec3::new(1, 0, 0), BlockType::Snow.into());
+//   // voxel_world.set_voxel(IVec3::new(0, 0, 1), BlockType::Snow.into());
+//   // voxel_world.set_voxel(IVec3::new(0, 0, -1), BlockType::Stone.into());
+//   // voxel_world.set_voxel(IVec3::new(-1, 0, 0), BlockType::Stone.into());
+//   // voxel_world.set_voxel(IVec3::new(-2, 0, 0), BlockType::Sand.into());
+//   // voxel_world.set_voxel(IVec3::new(-1, 1, 0), BlockType::Bricks.into());
+//   // voxel_world.set_voxel(IVec3::new(-2, 1, 0), BlockType::Snow.into());
+//   // voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
+// }
 
 fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTimeStamp>) {
   frame_timestamp.0 = time.0;
@@ -1550,21 +1766,22 @@ pub struct TimeTicks(pub u32);
 pub struct FrameTimeStamp(pub u32);
 
 pub fn increment_time(mut time: ResMut<TimeTicks>) { time.0 += 1; }
-pub fn timed_animation_system(time_ticks: Res<TimeTicks>,
-                              mut q: Query<(&TimedAnimation, &mut TextureAtlas)>) {
-  for (&TimedAnimation { num_frames,
-                         time_per_frame_in_ticks },
-       mut atlas) in &mut q
-  {
-    let time = time_ticks.0 as usize;
-    let index = |time| (time / time_per_frame_in_ticks) % num_frames;
-    let old_index = index(time.saturating_sub(1));
-    let new_index = index(time);
-    if new_index != old_index {
-      atlas.index = new_index;
-    }
-  }
-}
+// pub fn timed_animation_system(time_ticks: Res<TimeTicks>,
+//                               mut q: Query<(&TimedAnimation, &mut TextureAtlas)>) {
+//   // Populated::
+//   for (&TimedAnimation { num_frames,
+//                          time_per_frame_in_ticks },
+//        mut atlas) in &mut q
+//   {
+//     let time = time_ticks.0 as usize;
+//     let index = |time| (time / time_per_frame_in_ticks) % num_frames;
+//     let old_index = index(time.saturating_sub(1));
+//     let new_index = index(time);
+//     if new_index != old_index {
+//       atlas.index = new_index;
+//     }
+//   }
+// }
 
 fn close_on_esc(mut exit: EventWriter<AppExit>, keyboard_input: Res<ButtonInput<KeyCode>>) {
   if keyboard_input.just_pressed(KeyCode::Escape) {
@@ -1686,20 +1903,19 @@ pub fn string(t: impl ToString) -> String { t.to_string() }
 
 const FRAME_TIME_TICKS: usize = 20;
 
-pub const BLOOM_SETTINGS: BloomSettings =
-  BloomSettings { intensity: 0.5,
-                  low_frequency_boost: 0.0,
-                  prefilter_settings: BloomPrefilterSettings { threshold: 2.2,
-                                                               threshold_softness: 0.0 },
+pub const BLOOM: Bloom = Bloom { intensity: 0.5,
+                                 low_frequency_boost: 0.0,
+                                 prefilter: BloomPrefilter { threshold: 2.2,
+                                                             threshold_softness: 0.0 },
 
-                  composite_mode: BloomCompositeMode::Additive,
-                  ..BloomSettings::NATURAL };
+                                 composite_mode: BloomCompositeMode::Additive,
+                                 ..Bloom::NATURAL };
 
 const TONEMAPPING: bevy::core_pipeline::tonemapping::Tonemapping =
   bevy::core_pipeline::tonemapping::Tonemapping::Reinhard;
 
-const FOG_SETTINGS: FogSettings =
-  FogSettings { color: Color::srgb(0.25, 0.25, 0.25),
+const FOG_SETTINGS: DistanceFog =
+  DistanceFog { color: Color::srgb(0.25, 0.25, 0.25),
                 falloff: FogFalloff::ExponentialSquared { density: 0.5 },
                 directional_light_color: Color::NONE,
                 directional_light_exponent: 8.0 };
@@ -1730,11 +1946,12 @@ const CAMERA_TARGET_LIGHT: PointLight =
                range: 13.0,
                shadows_enabled: true,
                shadow_depth_bias: PointLight::DEFAULT_SHADOW_DEPTH_BIAS / 10.0,
-               shadow_normal_bias: PointLight::DEFAULT_SHADOW_NORMAL_BIAS / 10.0 };
+               shadow_normal_bias: PointLight::DEFAULT_SHADOW_NORMAL_BIAS / 10.0,
+               shadow_map_near_z: PointLight::DEFAULT_SHADOW_MAP_NEAR_Z };
 
 #[derive(Component)]
 struct Note(&'static str);
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, States)]
 enum GameState {
   Running,
   #[default]
@@ -1762,7 +1979,8 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              serv: Res<AssetServer>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
-             mut c: Commands) {
+             mut c: Commands,
+             mut blocksparam: BlocksParam) {
   c.spawn((Sun,
            Visuals::unlit_sprite(MySprite::SUN),
            NotShadowCaster,
@@ -1836,7 +2054,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn(torch(Location::new(4, 12, 5)));
   c.spawn(torch(Location::new(6, 12, 3)));
   c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::TREE)));
-  spawn_world(&mut c);
+  spawn_world(&mut c, blocksparam);
 
   let fov = std::f32::consts::PI / 4.0;
 
@@ -1844,7 +2062,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   let pitch_lower_limit_radians = 0.2;
   let camera =
     (IsDefaultUiCamera,
-     BLOOM_SETTINGS,
+     BLOOM,
      // Skybox { image: skybox_handle.clone(),
      //          brightness: 600.0 },
      Camera2d,
@@ -1919,21 +2137,43 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
 struct MyMainWorld;
 
 impl VoxelWorldConfig for MyMainWorld {
-  fn texture_index_mapper(&self) -> Arc<dyn Fn(u8) -> [u32; 3] + Send + Sync> {
-    // WorldVoxel
-    Arc::new(|vox_mat: u8| {
-      let block_type = BlockType::from(vox_mat);
-      let textures = block_type.textures();
-      let texture_indexes = textures.map(Into::into);
-      texture_indexes
-    })
+  type MaterialIndex = BlockType;
+  fn spawning_distance(&self) -> u32 { 10 }
+  fn chunk_despawn_strategy(&self) -> ChunkDespawnStrategy {
+    ChunkDespawnStrategy::default()
   }
+  fn chunk_spawn_strategy(&self) -> ChunkSpawnStrategy { ChunkSpawnStrategy::default() }
+  fn max_spawn_per_frame(&self) -> usize { 10000 }
+  fn spawning_rays(&self) -> usize { 100 }
+  fn spawning_ray_margin(&self) -> u32 { 25 }
+  fn debug_draw_chunks(&self) -> bool { false }
+  fn voxel_lookup_delegate(&self) -> VoxelLookupDelegate<Self::MaterialIndex> {
+    Box::new(|_| Box::new(|_| WorldVoxel::Unset))
+  }
+  fn init_custom_materials(&self) -> bool { true }
+  fn init_root(&self, mut _commands: Commands, _root: Entity) {}
+  fn texture_index_mapper(&self)
+                          -> Arc<dyn Fn(Self::MaterialIndex) -> [u32; 3] + Send + Sync> {
+    Arc::new(|_mat| [0, 0, 0])
+  }
+  // fn texture_index_mapper(&self) -> Arc<dyn Fn(u8) -> [u32; 3] + Send + Sync> {
+  //   // WorldVoxel
+  //   Arc::new(|vox_mat: u8| {
+  //     let block_type = BlockType::from(vox_mat);
+  //     let textures = block_type.textures();
+  //     let texture_indexes = textures.map(Into::into);
+  //     texture_indexes
+  //   })
+  // }
   fn voxel_texture(&self) -> Option<(String, u32)> {
-    Some((
-      "block_textures.png".into(),
-      11 // BlockTexture::NUM as u32
-    ))
+    Some(("block_textures.png".to_string(), BlockTexture::NUM as u32))
   }
+  // fn voxel_texture(&self) -> Option<(String, u32)> {
+  //   Some((
+  //     "block_textures.png".into(),
+  //     11 // BlockTexture::NUM as u32
+  //   ))
+  // }
 }
 
 impl From<BlockType> for WorldVoxel {
@@ -2491,27 +2731,29 @@ pub fn main() {
       VoxelWorldPlugin::with_config(MyMainWorld),
       // bevy_vox_scene::VoxScenePlugin,
       bevy_sprite3d::Sprite3dPlugin,
-      bevy_panorbit_camera::PanOrbitCameraPlugin,
-      bevy_mod_billboard::prelude::BillboardPlugin,
-      QuillPlugin,
-      QuillOverlaysPlugin,
+      // bevy_panorbit_camera::PanOrbitCameraPlugin,
+      // bevy_mod_billboard::prelude::BillboardPlugin,
+      // QuillPlugin,
+      // QuillOverlaysPlugin,
     ))
     .init_state::<GameState>()
     .init_resource::<UIData>()
+    .init_resource::<LocationsCache>()
     .init_resource::<FrameTimeStamp>()
     .init_resource::<TimeTicks>()
     .init_resource::<WorldLocationMap>()
     .insert_resource(ClearColor(mycolor::CLEAR))
     .insert_resource(AMBIENT_LIGHT)
-    .insert_resource(Msaa::Sample4)
+    // .insert_resource(Msaa::Sample4)
     .add_systems(Startup, setup)
 
     .add_systems(Update,
                  ((increment_time,
                    origin_time,
-                   timed_animation_system,).chain(),
+                   // timed_animation_system,
+                 ).chain(),
                   (set_prev_loc,
-                   sync_locations_new,
+                   // sync_locations_new,
                    set_frame_timestamp,
                    player_movement,
                    random_movement,

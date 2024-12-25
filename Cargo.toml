@@ -52,7 +52,7 @@ bevy_sprite3d = "4.0.0"
 
 # num_enum = "*"
 # bevy_flycam = "0.14.0"
-bevy_mod_billboard = "*"
+# bevy_mod_billboard = "*"
 
 # bevy_mod_picking = {version = "0.20.1",features = ["highlight"]}
 
@@ -96,10 +96,10 @@ bevy = { version = "0.15.0", default-features = false, features = [
     # "wayland",
 ] }
 # avian3d = "*"
-bevy_embedded_assets = "*"
+bevy_embedded_assets = "0.12"
 enum-assoc = "*"
 # anymap = "0.12.1"
-bevy_panorbit_camera = "*"
+# bevy_panorbit_camera = "*"
 # sickle_ui = "0.2.3"
 fancy_constructor = "*"
 # bevy_quill = "*"
@@ -112,7 +112,9 @@ fancy_constructor = "*"
 bevy-debug-camera = "*"
 # bevy_vector_shapes = "*"
 # fast-surface-nets = "*"
-bevy_voxel_world = "*"
+bevy_voxel_world = "0.10.1"
 noise = "0.9.0"
 derive_more = { version = "*", features = ["from", "add"] }
 bevy_ecs_tilemap = "0.15.0"
+glam = "0.29.2"
+bevy_mod_index = "0.6.0"
