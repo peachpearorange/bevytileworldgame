@@ -1075,89 +1075,13 @@ impl From<Location> for Transform {
 
 #[derive(Component, Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
 pub struct PrevLocation(pub Location);
-#[derive(Default, Resource)]
-pub struct WorldLocationMap {
-  blocks: HashMap<Location, BlockType>,
-  player_loc: Option<Location>,
-  entities: HashMap<Location, HashSet<Entity>>,
-  entity_positions: HashMap<Entity, Location>
-}
-
-impl WorldLocationMap {
-  fn cube_positions(center: Location,
-                    radius: i32,
-                    include_center: bool)
-                    -> impl Iterator<Item = Location> {
-    // let r = radius;
-    let range = move || -radius..=radius;
-
-    range().flat_map(move |dx| {
-             range().flat_map(move |dy| {
-                      range().filter_map(move |dz| {
-                        let pos = IVec3::new(dx, dy, dz);
-                        (include_center || pos != IVec3::ZERO).then_some(Location(center.0
-                                                                                  + pos))
-                      })
-                    })
-           })
-  }
-
-  pub fn get_block(&self, loc: Location) -> Option<BlockType> {
-    self.blocks.get(&loc).copied()
-  }
-  pub fn get_loc(&self, entity: Entity) -> Option<Location> {
-    self.entity_positions.get(&entity).copied()
-  }
-  pub fn get_entities_at(&self, loc: Location) -> impl Iterator<Item = Entity> + '_ {
-    self.entities.get(&loc).into_iter().flatten().copied()
-  }
-
-  pub fn get_entities_adjacent(&self, entity: Entity) -> Vec<Entity> {
-    self.get_loc(entity)
-        .map(|loc| {
-          Self::cube_positions(loc, 1, false).flat_map(|p| self.get_entities_at(p))
-                                             .collect()
-        })
-        .unwrap_or_default()
-  }
-  pub fn get_entity_distance(&self, a: Entity, b: Entity) -> Option<i32> {
-    let pos_a = self.entity_positions.get(&a)?.0;
-    let pos_b = self.entity_positions.get(&b)?.0;
-    let diff = pos_a - pos_b;
-    Some(diff.x.abs().max(diff.y.abs()).max(diff.z.abs()))
-  }
-  pub fn are_adjacent(&self, a: Entity, b: Entity) -> bool {
-    self.get_entity_distance(a, b).map_or(false, |d| d == 1)
-  }
-
-  pub fn get_player_loc(&self) -> Option<Location> { self.player_loc }
-
-  pub fn get_adjacent_walkable(&self, loc: Location) -> Vec<Location> {
-    let adjacents = [IVec3::new(1, 0, 0),
-                     IVec3::new(-1, 0, 0),
-                     IVec3::new(0, 0, 1),
-                     IVec3::new(0, 0, -1),
-                     IVec3::new(1, 1, 0),
-                     IVec3::new(-1, 1, 0),
-                     IVec3::new(0, 1, 1),
-                     IVec3::new(0, 1, -1),
-                     IVec3::new(1, -1, 0),
-                     IVec3::new(-1, -1, 0),
-                     IVec3::new(0, -1, 1),
-                     IVec3::new(0, -1, -1)];
-
-    adjacents.iter()
-             .map(|&offset| Location(loc.0 + offset))
-             .filter(|&pos| {
-               let below = Location(pos.0 - IVec3::Y);
-               self.get_block(pos).is_none() && // No block at position
-                self.get_block(below).is_some() // Has floor
-                                                //  &&
-                                                // !self.get_entities_at(pos).next().is_some() // No entities
-             })
-             .collect()
-  }
-}
+// #[derive(Default, Resource)]
+// pub struct WorldLocationMap {
+//   blocks: HashMap<Location, BlockType>,
+//   player_loc: Option<Location>,
+//   entities: HashMap<Location, HashSet<Entity>>,
+//   entity_positions: HashMap<Entity, Location>
+// }
 
 // const WIDTH: usize = 256;
 // const HEIGHT: usize = 64;
@@ -1276,27 +1200,6 @@ pub fn spawn_world(mut c: &mut Commands, mut blocksparam: BlocksParam) {
 //     }
 // }
 
-// #[derive(Resource)]
-// struct LocationsCache(EntityHashMap<Location>);
-
-// #[derive(SystemParam)]
-// struct LocationsParam<'w, 's> {
-//   locsq: Query<'w, 's, (Entity, &'static mut Location)>,
-//   cache: ResMut<'w, LocationsCache>
-// }
-// impl<'w, 's> LocationsParam<'w, 's> {
-//   fn set(&mut self, e: Entity, loc: Location) {}
-// }
-// #[derive(SystemParam)]
-// struct BlocksParam<'w, 's> {
-//   locsparam: LocationsParam<'w, 's>,
-//   blocks: Query<'w, 's, (Entity, &'static mut BlockType, &'static Location)>,
-//   voxel_world: VoxelWorld<'w, MyMainWorld>
-// }
-
-// impl<'w, 's> BlocksParam<'w, 's> {
-//   fn set(&mut self, loc: Location, block_type: BlockType) {}
-// }
 use bevy_mod_index::prelude::*;
 
 // struct Location;
@@ -1307,6 +1210,53 @@ impl IndexInfo for Location {
   const REFRESH_POLICY: IndexRefreshPolicy = IndexRefreshPolicy::WhenRun;
   fn value(c: &Self::Component) -> Self::Value { *c }
 }
+
+fn cube_positions(center: Location,
+                  radius: i32,
+                  include_center: bool)
+                  -> impl Iterator<Item = Location> {
+  // let r = radius;
+  let range = move || -radius..=radius;
+
+  range().flat_map(move |dx| {
+           range().flat_map(move |dy| {
+                    range().filter_map(move |dz| {
+                      let pos = IVec3::new(dx, dy, dz);
+                      (include_center || pos != IVec3::ZERO).then_some(Location(center.0
+                                                                                + pos))
+                    })
+                  })
+         })
+}
+pub fn get_block(&self, loc: Location) -> Option<BlockType> {
+  self.blocks.get(&loc).copied()
+}
+pub fn get_loc(&self, entity: Entity) -> Option<Location> {
+  self.entity_positions.get(&entity).copied()
+}
+pub fn get_entities_at(&self, loc: Location) -> impl Iterator<Item = Entity> + '_ {
+  self.entities.get(&loc).into_iter().flatten().copied()
+}
+
+pub fn get_entities_adjacent(&self, entity: Entity) -> Vec<Entity> {
+  self.get_loc(entity)
+      .map(|loc| {
+        Self::cube_positions(loc, 1, false).flat_map(|p| self.get_entities_at(p))
+                                           .collect()
+      })
+      .unwrap_or_default()
+}
+pub fn get_entity_distance(&self, a: Entity, b: Entity) -> Option<i32> {
+  let pos_a = self.entity_positions.get(&a)?.0;
+  let pos_b = self.entity_positions.get(&b)?.0;
+  let diff = pos_a - pos_b;
+  Some(diff.x.abs().max(diff.y.abs()).max(diff.z.abs()))
+}
+pub fn are_adjacent(&self, a: Entity, b: Entity) -> bool {
+  self.get_entity_distance(a, b).map_or(false, |d| d == 1)
+}
+
+pub fn get_player_loc(&self) -> Option<Location> { self.player_loc }
 
 // #[derive(Resource, Default)]
 // struct LocationsCache(HashMap<Location, HashSet<Entity>>);
@@ -1327,51 +1277,51 @@ struct BlocksParam<'w, 's> {
 
 impl<'w, 's> BlocksParam<'w, 's> {
   /// Sets or removes the block type for the given location. Spawns an entity if none exists.
-  fn set(&mut self, loc: Location, block_type: Option<BlockType>) {
-    let preexistingentities = self.locsindex.lookup(&loc);
-    let preexistingblockentity = preexistingentities.find(|&e|  self.blocks.contains(e));
+  fn set(&mut self, loc: Location, option_new_block_type: Option<BlockType>) {
+    let Self { blocks,
+               commands,
+               locsindex,
+               voxel_world } = self;
+    let preexistingentities = locsindex.lookup(&loc);
+    let preexistingblockentity = find(|&e| blocks.contains(e), preexistingentities);
     if let Some(block_entity) = preexistingblockentity {
-    } else {
+      commands.entity(block_entity).despawn();
     }
-    match (block_type,
-           self.locsparam
-               .find_entities_by_location(&loc)
-               .map(|entities| entities.clone()))
-    {
-      (None, None) => {
-        // Nothing to do if there is no block type and no entities exist.
-      }
-      (None, Some(entities)) => {
-        // Despawn all entities at the location and remove them from the cache.
-        for entity in entities {
-          self.commands.entity(entity).despawn();
-          self.locsparam.remove(entity, &loc);
-        }
-      }
-      (Some(new_block_type), None) => {
-        // Spawn a new entity with the given block type and location.
-        let new_entity = self.commands.spawn((new_block_type, loc.clone())).id();
-        self.locsparam.add(new_entity, loc);
-      }
-      (Some(new_block_type), Some(entities)) => {
-        // Update the block type of the first entity at the location.
-        if let Some(&entity) = entities.iter().next() {
-          if let Ok((_, mut block)) = self.blocks.get_mut(entity) {
-            *block = new_block_type;
-          } else {
-            panic!("Entity found in cache but not in query: {:?}", entity);
-          }
-        }
-      }
+    if let Some(new_block_type) = option_new_block_type {
+      commands.spawn((loc, new_block_type));
     }
+    voxel_world.set_voxel(loc.0,
+                          option_new_block_type.map_or(WorldVoxel::Air, WorldVoxel::Solid));
   }
+
+
+fn get_adjacent_walkable(&self, loc: Location) -> Vec<Location> {
+  let adjacents = [IVec3::new(1, 0, 0),
+                   IVec3::new(-1, 0, 0),
+                   IVec3::new(0, 0, 1),
+                   IVec3::new(0, 0, -1),
+                   IVec3::new(1, 1, 0),
+                   IVec3::new(-1, 1, 0),
+                   IVec3::new(0, 1, 1),
+                   IVec3::new(0, 1, -1),
+                   IVec3::new(1, -1, 0),
+                   IVec3::new(-1, -1, 0),
+                   IVec3::new(0, -1, 1),
+                   IVec3::new(0, -1, -1)];
+
+  adjacents.iter()
+           .map(|&offset| Location(loc.0 + offset))
+           .filter(|&pos| {
+             let below = Location(pos.0 - IVec3::Y);
+             self.get_block(pos).is_none() && // No block at position
+                self.get_block(below).is_some() // Has floor
+                                                //  &&
+                                                // !self.get_entities_at(pos).next().is_some() // No entities
+           })
+           .collect()
+}
 }
 
-// #[derive(QueryData)]
-// #[query_data(mutable)]
-// struct QueryBlocks {
-//     component_a: &'static mut ComponentA,
-// }
 // pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
 //                           mut playerq: Option<Single<&Location, With<Player>>>,
 //                           // mut er_on_remove: EventReader<OnRemove>,
@@ -1530,7 +1480,8 @@ fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
   }
 }
 fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
-            world_locs: Res<WorldLocationMap>,
+            blocksparam: BlocksParam,
+            // world_locs: Res<WorldLocationMap>,
             time: Res<TimeTicks>) {
   let is_solid = |pos: Location| world_locs.get_block(pos).is_some();
   let is_walkable = |&pos: &Location| // is_solid(pos.below()) &&
@@ -2738,7 +2689,6 @@ pub fn main() {
     ))
     .init_state::<GameState>()
     .init_resource::<UIData>()
-    .init_resource::<LocationsCache>()
     .init_resource::<FrameTimeStamp>()
     .init_resource::<TimeTicks>()
     .init_resource::<WorldLocationMap>()
