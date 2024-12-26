@@ -615,7 +615,11 @@ impl Dir {
   }
 }
 
+#[derive(Component, Debug, Default)]
+pub struct MovesTo(Option<Location>);
+
 #[derive(Component, Default)]
+#[require(MovesTo)]
 pub struct TryToMove(Dir);
 const NORMAL_NPC_SCALE: f32 = 1.9;
 const NORMAL_NPC_THRUST: f32 = 400.0;
@@ -1480,10 +1484,9 @@ fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
     *trytomove = TryToMove(Dir::rand());
   }
 }
-#[derive(Component, Debug, Default)]
-pub struct MovesTo(IVec3);
-fn try_movement(mut moversq: Query<(&mut Location, &TryToMove), Without<BlockType>>,
-                mut blocksparam: BlocksParam,
+fn try_movement(mut moversq: Query<(&Location, &TryToMove, &mut MovesTo),
+                      Without<BlockType>>,
+                // mut blocksparam: BlocksParam,
                 mut locsindex: Index<Location>,
                 blocksq: Query<(Entity, &BlockType)>,
                 // world_locs: Res<WorldLocationMap>,
@@ -1491,7 +1494,7 @@ fn try_movement(mut moversq: Query<(&mut Location, &TryToMove), Without<BlockTyp
   let mut is_solid = |pos: Location| locsindex.lookup(&pos).any(|e| blocksq.contains(e));
   // let mut is_walkable = |&pos: &Location| // is_solid(pos.below()) &&
   //   !is_solid(pos);
-  for (mut loc, trytomove) in &mut moversq {
+  for (&loc, &TryToMove(try_to_move_dir), mut moves_to) in &mut moversq {
     let mut adjacent_walkable: Vec<_> = loc.adjacents()
                                            .iter()
                                            .copied()
@@ -1499,22 +1502,26 @@ fn try_movement(mut moversq: Query<(&mut Location, &TryToMove), Without<BlockTyp
                                            .collect();
     let mut is_place_to_fall_down = |pos: Location| !is_solid(pos.below());
     // gravity
-    if is_place_to_fall_down(*loc) {
-      *loc = loc.below();
+    moves_to.0 = if is_place_to_fall_down(loc) {
+      Some(loc.below())
     } else if let Some(&new_pos) =
       adjacent_walkable.iter()
-                       .find(|&&otherloc| Dir::rel(otherloc, *loc) == trytomove.0)
+                       .find(|&&otherloc| Dir::rel(otherloc, loc) == try_to_move_dir)
     {
-      *loc = new_pos;
+      Some(new_pos)
+    } else {
+      None
     }
   }
 }
-fn movement(mut moversq: Query<(&mut Location, &TryToMove), Without<BlockType>>,
-            mut blocksparam: BlocksParam,
-            mut locsindex: Index<Location>,
-            blocksq: Query<(Entity, &BlockType)>,
-            // world_locs: Res<WorldLocationMap>,
-            time: Res<TimeTicks>) {
+
+fn movement(mut moversq: Query<(&mut MovesTo, &mut Location)>) {
+  for (mut moves_to, mut loc) in &mut moversq {
+    if let MovesTo(Some(new_loc)) = *moves_to {
+      *loc = new_loc;
+      *moves_to = default();
+    }
+  }
 }
 
 // fn camera_movement(mut camq: Query<(&mut PanOrbitCamera, &Transform)>,
@@ -2725,7 +2732,8 @@ pub fn main() {
                    set_frame_timestamp,
                    player_movement,
                    random_movement,
-                   try_movement).chain().run_if(every_n_ticks::<FRAME_TIME_TICKS>),
+                   try_movement,
+                   movement).chain().run_if(every_n_ticks::<FRAME_TIME_TICKS>),
                   position_sprite_billboards,
                   camera_follow_player,
                   // proximity_system,
