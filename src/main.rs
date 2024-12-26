@@ -1228,35 +1228,32 @@ fn cube_positions(center: Location,
                   })
          })
 }
-pub fn get_block(&self, loc: Location) -> Option<BlockType> {
-  self.blocks.get(&loc).copied()
-}
-pub fn get_loc(&self, entity: Entity) -> Option<Location> {
-  self.entity_positions.get(&entity).copied()
-}
-pub fn get_entities_at(&self, loc: Location) -> impl Iterator<Item = Entity> + '_ {
-  self.entities.get(&loc).into_iter().flatten().copied()
-}
+// pub fn get_loc(&self, entity: Entity) -> Option<Location> {
+//   self.entity_positions.get(&entity).copied()
+// }
+// pub fn get_entities_at(&self, loc: Location) -> impl Iterator<Item = Entity> + '_ {
+//   self.entities.get(&loc).into_iter().flatten().copied()
+// }
 
-pub fn get_entities_adjacent(&self, entity: Entity) -> Vec<Entity> {
-  self.get_loc(entity)
-      .map(|loc| {
-        Self::cube_positions(loc, 1, false).flat_map(|p| self.get_entities_at(p))
-                                           .collect()
-      })
-      .unwrap_or_default()
-}
-pub fn get_entity_distance(&self, a: Entity, b: Entity) -> Option<i32> {
-  let pos_a = self.entity_positions.get(&a)?.0;
-  let pos_b = self.entity_positions.get(&b)?.0;
-  let diff = pos_a - pos_b;
-  Some(diff.x.abs().max(diff.y.abs()).max(diff.z.abs()))
-}
-pub fn are_adjacent(&self, a: Entity, b: Entity) -> bool {
-  self.get_entity_distance(a, b).map_or(false, |d| d == 1)
-}
+// pub fn get_entities_adjacent(&self, entity: Entity) -> Vec<Entity> {
+//   self.get_loc(entity)
+//       .map(|loc| {
+//         Self::cube_positions(loc, 1, false).flat_map(|p| self.get_entities_at(p))
+//                                            .collect()
+//       })
+//       .unwrap_or_default()
+// }
+// pub fn get_entity_distance(&self, a: Entity, b: Entity) -> Option<i32> {
+//   let pos_a = self.entity_positions.get(&a)?.0;
+//   let pos_b = self.entity_positions.get(&b)?.0;
+//   let diff = pos_a - pos_b;
+//   Some(diff.x.abs().max(diff.y.abs()).max(diff.z.abs()))
+// }
+// pub fn are_adjacent(&self, a: Entity, b: Entity) -> bool {
+//   self.get_entity_distance(a, b).map_or(false, |d| d == 1)
+// }
 
-pub fn get_player_loc(&self) -> Option<Location> { self.player_loc }
+// pub fn get_player_loc(&self) -> Option<Location> { self.player_loc }
 
 // #[derive(Resource, Default)]
 // struct LocationsCache(HashMap<Location, HashSet<Entity>>);
@@ -1294,32 +1291,36 @@ impl<'w, 's> BlocksParam<'w, 's> {
                           option_new_block_type.map_or(WorldVoxel::Air, WorldVoxel::Solid));
   }
 
+  pub fn get(&mut self, loc: Location) -> Option<BlockType> {
+    let e = self.locsindex.lookup_single(&loc).ok()?;
+    let (_, &block_type) = self.blocks.get(e).ok()?;
+    Some(block_type)
+  }
+  fn get_adjacent_walkable(&mut self, loc: Location) -> Vec<Location> {
+    let adjacents = [IVec3::new(1, 0, 0),
+                     IVec3::new(-1, 0, 0),
+                     IVec3::new(0, 0, 1),
+                     IVec3::new(0, 0, -1),
+                     IVec3::new(1, 1, 0),
+                     IVec3::new(-1, 1, 0),
+                     IVec3::new(0, 1, 1),
+                     IVec3::new(0, 1, -1),
+                     IVec3::new(1, -1, 0),
+                     IVec3::new(-1, -1, 0),
+                     IVec3::new(0, -1, 1),
+                     IVec3::new(0, -1, -1)];
 
-fn get_adjacent_walkable(&self, loc: Location) -> Vec<Location> {
-  let adjacents = [IVec3::new(1, 0, 0),
-                   IVec3::new(-1, 0, 0),
-                   IVec3::new(0, 0, 1),
-                   IVec3::new(0, 0, -1),
-                   IVec3::new(1, 1, 0),
-                   IVec3::new(-1, 1, 0),
-                   IVec3::new(0, 1, 1),
-                   IVec3::new(0, 1, -1),
-                   IVec3::new(1, -1, 0),
-                   IVec3::new(-1, -1, 0),
-                   IVec3::new(0, -1, 1),
-                   IVec3::new(0, -1, -1)];
-
-  adjacents.iter()
-           .map(|&offset| Location(loc.0 + offset))
-           .filter(|&pos| {
-             let below = Location(pos.0 - IVec3::Y);
-             self.get_block(pos).is_none() && // No block at position
-                self.get_block(below).is_some() // Has floor
-                                                //  &&
-                                                // !self.get_entities_at(pos).next().is_some() // No entities
-           })
-           .collect()
-}
+    adjacents.iter()
+             .map(|&offset| Location(loc.0 + offset))
+             .filter(|&pos| {
+               let below = Location(pos.0 - IVec3::Y);
+               self.get(pos).is_none() && // No block at position
+                self.get(below).is_some() // Has floor
+                                          //  &&
+                                          // !self.get_entities_at(pos).next().is_some() // No entities
+             })
+             .collect()
+  }
 }
 
 // pub fn sync_locations_new(mut world_locs: ResMut<WorldLocationMap>,
@@ -1479,25 +1480,41 @@ fn random_movement(mut moversq: Query<&mut TryToMove, With<RandomMovement>>) {
     *trytomove = TryToMove(Dir::rand());
   }
 }
-fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
-            blocksparam: BlocksParam,
-            // world_locs: Res<WorldLocationMap>,
-            time: Res<TimeTicks>) {
-  let is_solid = |pos: Location| world_locs.get_block(pos).is_some();
-  let is_walkable = |&pos: &Location| // is_solid(pos.below()) &&
-    !is_solid(pos);
-  let is_place_to_fall_down = |pos: Location| !is_solid(pos.below());
+#[derive(Component, Debug, Default)]
+pub struct MovesTo(IVec3);
+fn try_movement(mut moversq: Query<(&mut Location, &TryToMove), Without<BlockType>>,
+                mut blocksparam: BlocksParam,
+                mut locsindex: Index<Location>,
+                blocksq: Query<(Entity, &BlockType)>,
+                // world_locs: Res<WorldLocationMap>,
+                time: Res<TimeTicks>) {
+  let mut is_solid = |pos: Location| locsindex.lookup(&pos).any(|e| blocksq.contains(e));
+  // let mut is_walkable = |&pos: &Location| // is_solid(pos.below()) &&
+  //   !is_solid(pos);
   for (mut loc, trytomove) in &mut moversq {
-    let adjacent_walkable = filter(is_walkable, loc.adjacents());
+    let mut adjacent_walkable: Vec<_> = loc.adjacents()
+                                           .iter()
+                                           .copied()
+                                           .filter(|&pos: &Location| !is_solid(pos))
+                                           .collect();
+    let mut is_place_to_fall_down = |pos: Location| !is_solid(pos.below());
     // gravity
     if is_place_to_fall_down(*loc) {
       *loc = loc.below();
-    } else if let Some(new_pos) = find(|otherloc| Dir::rel(*otherloc, *loc) == trytomove.0,
-                                       adjacent_walkable)
+    } else if let Some(&new_pos) =
+      adjacent_walkable.iter()
+                       .find(|&&otherloc| Dir::rel(otherloc, *loc) == trytomove.0)
     {
       *loc = new_pos;
     }
   }
+}
+fn movement(mut moversq: Query<(&mut Location, &TryToMove), Without<BlockType>>,
+            mut blocksparam: BlocksParam,
+            mut locsindex: Index<Location>,
+            blocksq: Query<(Entity, &BlockType)>,
+            // world_locs: Res<WorldLocationMap>,
+            time: Res<TimeTicks>) {
 }
 
 // fn camera_movement(mut camq: Query<(&mut PanOrbitCamera, &Transform)>,
@@ -1539,7 +1556,7 @@ fn movement(mut moversq: Query<(&mut Location, &TryToMove)>,
 
 fn camera_follow_player(mut camq: Single<(&mut Camera3d, &mut Transform),
                                Without<Player>>,
-                        world_locs: Res<WorldLocationMap>,
+                        // world_locs: Res<WorldLocationMap>,
                         mut cam_target_pos: Local<Vec3>,
                         keys: Res<ButtonInput<KeyCode>>,
                         playerq: Single<&Transform, With<Player>>) {
@@ -2691,7 +2708,8 @@ pub fn main() {
     .init_resource::<UIData>()
     .init_resource::<FrameTimeStamp>()
     .init_resource::<TimeTicks>()
-    .init_resource::<WorldLocationMap>()
+
+    // .init_resource::<WorldLocationMap>()
     .insert_resource(ClearColor(mycolor::CLEAR))
     .insert_resource(AMBIENT_LIGHT)
     // .insert_resource(Msaa::Sample4)
@@ -2707,7 +2725,7 @@ pub fn main() {
                    set_frame_timestamp,
                    player_movement,
                    random_movement,
-                   movement).chain().run_if(every_n_ticks::<FRAME_TIME_TICKS>),
+                   try_movement).chain().run_if(every_n_ticks::<FRAME_TIME_TICKS>),
                   position_sprite_billboards,
                   camera_follow_player,
                   // proximity_system,
