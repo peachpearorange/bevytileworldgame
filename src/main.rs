@@ -25,7 +25,6 @@
 
 // use crate::dialogue::DialogueTree
 
-use noise::NoiseFn;
 use {bevy::{app::AppExit,
             asset::{AssetServer, Handle},
             core_pipeline::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
@@ -56,6 +55,10 @@ use {bevy::{app::AppExit,
            mem::variant_count,
            ops::DerefMut,
            sync::Arc}};
+use {bevy::{core_pipeline::{tonemapping::{DebandDither, Tonemapping},
+                            Skybox},
+            render::{camera::Exposure, view::ColorGrading}},
+     noise::NoiseFn};
 
 // ui::UIData
 
@@ -560,14 +563,14 @@ enum Dir {
 impl From<Dir> for IVec2 {
   fn from(dir: Dir) -> Self {
     match dir {
-      Dir::North => IVec2::Y,                        // Up
-      Dir::Northeast => IVec2::X + IVec2::Y,         // Up-Right
+      Dir::North => IVec2::NEG_Y,                    // Up
+      Dir::Northeast => IVec2::X + IVec2::NEG_Y,     // Up-Right
+      Dir::Northwest => IVec2::NEG_X + IVec2::NEG_Y, // Up-Left
+      Dir::South => IVec2::Y,                        // Down
+      Dir::Southwest => IVec2::NEG_X + IVec2::Y,     // Down-Left
+      Dir::Southeast => IVec2::X + IVec2::Y,         // Down-Right
       Dir::East => IVec2::X,                         // Right
-      Dir::Southeast => IVec2::X + IVec2::NEG_Y,     // Down-Right
-      Dir::South => IVec2::NEG_Y,                    // Down
-      Dir::Southwest => IVec2::NEG_X + IVec2::NEG_Y, // Down-Left
       Dir::West => IVec2::NEG_X,                     // Left
-      Dir::Northwest => IVec2::NEG_X + IVec2::Y,     // Up-Left
       Dir::Here => IVec2::ZERO                       // No movement
     }
   }
@@ -582,22 +585,7 @@ const DIRS: &[Dir] = &[Dir::North,
                        Dir::Northwest,
                        Dir::Here];
 impl Dir {
-  // fn rel(loc1: Location, loc2: Location) -> Self {
-  //   match (loc1.0.x.cmp(&loc2.0.x), loc1.0.z.cmp(&loc2.0.z)) {
-  //     (Ordering::Less, Ordering::Less) => Dir::Northwest,
-  //     (Ordering::Less, Ordering::Equal) => Dir::West,
-  //     (Ordering::Less, Ordering::Greater) => Dir::Southwest,
-  //     (Ordering::Equal, Ordering::Less) => Dir::North,
-  //     (Ordering::Equal, Ordering::Equal) => Dir::Here,
-  //     (Ordering::Equal, Ordering::Greater) => Dir::South,
-  //     (Ordering::Greater, Ordering::Less) => Dir::Northeast,
-  //     (Ordering::Greater, Ordering::Equal) => Dir::East,
-  //     (Ordering::Greater, Ordering::Greater) => Dir::Southeast
-  //   }
-  // }
   fn rand() -> Self { *pick(DIRS).unwrap() }
-}
-impl Dir {
   fn rel(loc1: Location, loc2: Location) -> Self {
     // Calculate the delta in x and z coordinates
     let delta_x = loc2.0.x.cmp(&loc1.0.x);
@@ -1204,7 +1192,7 @@ pub fn spawn_world(mut c: &mut Commands, mut blocksparam: BlocksParam) {
 //     }
 // }
 
-use bevy_mod_index::prelude::*;
+use {bevy::render::camera::CameraRenderGraph, bevy_mod_index::prelude::*};
 
 // struct Location;
 impl IndexInfo for Location {
@@ -1458,8 +1446,14 @@ fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTi
 //     *player_trytomove = TryToMove(dir);
 //   }
 // }
+#[derive(Default, Resource)]
+pub struct PressedKeys(HashSet<KeyCode>);
 
-fn player_movement(keys: Res<ButtonInput<KeyCode>>,
+fn get_pressed_keys(keys: Res<ButtonInput<KeyCode>>, mut pressed_keys: ResMut<PressedKeys>) {
+  pressed_keys.0.extend(keys.get_pressed());
+}
+fn player_movement(// keys: Res<ButtonInput<KeyCode>>,
+                   mut pressed_keys: ResMut<PressedKeys>,
                    mut player_trytomove: Single<&mut TryToMove, With<Player>>) {
   // Define key-to-direction mapping
   let dir = [(KeyCode::KeyW, Dir::North),
@@ -1467,14 +1461,11 @@ fn player_movement(keys: Res<ButtonInput<KeyCode>>,
              (KeyCode::KeyS, Dir::South),
              (KeyCode::KeyD, Dir::East)].iter()
                                         .find_map(|&(key, dir)| {
-                                                    if keys.pressed(key) {
-                                                      Some(dir)
-                                                    } else {
-                                                      None
-                                                    }
-                                                  })
+                                          pressed_keys.0.contains(&key).then_some(dir)
+                                        })
                                         .unwrap_or(Dir::Here);
 
+  pressed_keys.0 = default();
   **player_trytomove = TryToMove(dir);
 }
 
@@ -1737,6 +1728,10 @@ enum Navigation {
 
 #[derive(Default, Resource)]
 pub struct TimeTicks(pub u32);
+
+impl TimeTicks {
+  fn is_sim_frame_tick(&self)->bool{}
+}
 #[derive(Default, Resource)]
 pub struct FrameTimeStamp(pub u32);
 
@@ -1876,7 +1871,7 @@ comment! {
 
 pub fn string(t: impl ToString) -> String { t.to_string() }
 
-const FRAME_TIME_TICKS: usize = 20;
+const FRAME_TIME_TICKS: usize = 10;
 
 pub const BLOOM: Bloom = Bloom { intensity: 0.5,
                                  low_frequency_boost: 0.0,
@@ -1949,6 +1944,8 @@ pub struct Player {}
 pub struct CameraPosIndicator;
 #[derive(Component, Debug)]
 pub struct CameraTarget;
+
+fn default_array<T: Default + Copy, const N: usize>() -> [T; N] { [T::default(); N] }
 
 pub fn setup(playerq: Query<&Transform, With<Player>>,
              serv: Res<AssetServer>,
@@ -2035,63 +2032,46 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
 
   let pitch_upper_limit_radians = 1.0;
   let pitch_lower_limit_radians = 0.2;
-  let camera =
-    (IsDefaultUiCamera,
-     BLOOM,
-     // Skybox { image: skybox_handle.clone(),
-     //          brightness: 600.0 },
-     Camera2d,
-     // FOG_SETTINGS,
-     VoxelWorldCamera::<MyMainWorld>::default(),
-     Camera3dBundle { camera: Camera { hdr: true,
+  let camera = (
+    Camera { hdr: true,
 
-                                       ..default() },
-                      transform:
-                      Transform::from_xyz(10.0, 10.0, 10.0)
-                      .looking_at(Vec3::ZERO, Vec3::Y),
+             ..default() },
+    ColorGrading{..default()},
+    Camera3d::default(),
+    IsDefaultUiCamera,
+    BLOOM,
+    TONEMAPPING,
+    Projection::Perspective(PerspectiveProjection { fov, ..default() }),
+    Exposure { ev100: 10.0 },
+    // Skybox { image: skybox_handle.clone(),
+    //          brightness: 600.0 },
+    Camera2d,
+    VoxelWorldCamera::<MyMainWorld>::default(),
+    Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    // Camera3dBundle { camera: Camera { hdr: true,
 
-                      tonemapping: TONEMAPPING,
-                      projection:
-                        Projection::Perspective(PerspectiveProjection { fov, ..default() }),
-                      exposure: bevy::render::camera::Exposure { ev100: 10.0 },
-                      // tonemapping:
-                      //   bevy::core_pipeline::tonemapping::Tonemapping::Reinhard,
-                      ..default() },
-     // PanOrbitCamera { // radius: Some(5.0),
+    //                                   ..default() },
+    //                  ..default() }
+  );
+  // let camera =
+  //   (IsDefaultUiCamera,
+  //    BLOOM,
+  //    // Skybox { image: skybox_handle.clone(),
+  //    //          brightness: 600.0 },
+  //    Camera2d,
+  //    // FOG_SETTINGS,
+  //    VoxelWorldCamera::<MyMainWorld>::default(),
+  //    Camera3dBundle { camera: Camera { hdr: true,
 
-     //                  // focus: todo!(),
-     //                  // yaw: todo!(),
-     //                  // pitch: todo!(),
-     //                  // target_focus: todo!(),
-     //                  // target_yaw: todo!(),
-     //                  // target_pitch: todo!(),
-     //                  // target_radius: todo!(),
-     //                  // yaw_upper_limit: todo!(),
-     //                  // yaw_lower_limit: todo!(),
-     //                  pitch_upper_limit: Some(pitch_upper_limit_radians),
-     //                  pitch_lower_limit: Some(pitch_lower_limit_radians),
-     //                  zoom_upper_limit: Some(8.0),
-     //                  zoom_lower_limit: Some(2.0),
-     //                  // orbit_sensitivity: todo!(),
-     //                  orbit_smoothness: 0.0,
-     //                  pan_sensitivity: 0.0,
-     //                  pan_smoothness: 0.5,
-     //                  zoom_sensitivity: 2.5,
-     //                  // zoom_smoothness: todo!(),
-     //                  // button_orbit: todo!(),
-     //                  // button_pan: todo!(),
-     //                  // modifier_orbit: todo!(),
-     //                  // modifier_pan: todo!(),
-     //                  // touch_enabled: todo!(),
-     //                  // touch_controls: todo!(),
-     //                  // reversed_zoom: todo!(),
-     //                  // is_upside_down: todo!(),
-     //                  // allow_upside_down: todo!(),
-     //                  // enabled: todo!(),
-     //                  // initialized: todo!(),
-     //                  // force_update: todo!(),
-     //                  ..default() }
-    );
+  //                                      ..default() },
+  //                     transform:
+  //                       Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+
+  //                     tonemapping: TONEMAPPING,
+  //                     projection:
+  //                       Projection::Perspective(PerspectiveProjection { fov, ..default() }),
+  //                     exposure: bevy::render::camera::Exposure { ev100: 10.0 },
+  //                     ..default() });
   c.spawn(camera);
   // Pointer
   // light
@@ -2458,6 +2438,8 @@ comment! {
     // },
   }
 }
+type ASDF = fn(u32, u32, [u32; 123]) -> u32;
+type ASAASDF = [bool; 123];
 
 comment! {
   #[derive(Clone)]
@@ -2712,6 +2694,7 @@ pub fn main() {
       // QuillOverlaysPlugin,
     ))
     .init_state::<GameState>()
+    .init_resource::<PressedKeys>()
     .init_resource::<UIData>()
     .init_resource::<FrameTimeStamp>()
     .init_resource::<TimeTicks>()
@@ -2725,6 +2708,7 @@ pub fn main() {
     .add_systems(Update,
                  ((increment_time,
                    origin_time,
+                   get_pressed_keys,
                    // timed_animation_system,
                  ).chain(),
                   (set_prev_loc,
