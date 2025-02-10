@@ -10,6 +10,7 @@
 #![feature(iter_intersperse)]
 #![feature(trivial_bounds)]
 #![feature(impl_trait_in_assoc_type)]
+#![feature(const_closures)]
 // #![feature(impl_trait_existential_types)]
 // #![feature(option_get_or_insert_default)]
 #![feature(let_chains)]
@@ -24,6 +25,11 @@
 // mod mycommand;
 
 // use crate::dialogue::DialogueTree
+
+use bevy::ecs::query::{ReadOnlyQueryData, WorldQuery};
+
+use {core::hash,
+     std::{cell::LazyCell, sync::LazyLock}};
 
 use {bevy::{app::AppExit,
             asset::{AssetServer, Handle},
@@ -62,6 +68,27 @@ use {bevy::{core_pipeline::{tonemapping::{DebandDither, Tonemapping},
 
 // ui::UIData
 
+const ROTATIONS: fn() -> [Quat; 5] = || {
+  [Quat::IDENTITY,
+   Quat::from_rotation_z(-PI),
+   Quat::from_rotation_z(PI),
+   Quat::from_rotation_x(PI),
+   Quat::from_rotation_x(-PI)]
+};
+const ROTATIONS2: LazyLock<[Quat; 5]> = LazyLock::new(|| {
+  [Quat::IDENTITY,
+   Quat::from_rotation_z(-PI),
+   Quat::from_rotation_z(PI),
+   Quat::from_rotation_x(PI),
+   Quat::from_rotation_x(-PI)]
+});
+fn rotations() -> [Quat; 5] {
+  [Quat::IDENTITY,
+   Quat::from_rotation_z(-PI),
+   Quat::from_rotation_z(PI),
+   Quat::from_rotation_x(PI),
+   Quat::from_rotation_x(-PI)]
+}
 mod mycolor {
   pub use bevy::color::palettes::tailwind::*;
   use bevy::color::{palettes::tailwind::*, Color};
@@ -80,9 +107,21 @@ mod mycolor {
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
 pub const ENABLE_SHADOWS_OTHER_THAN_SUN: bool = false;
-// {
-//   bevy::ui::State
-// }
+
+enum Shape {
+  Circle(f32),
+  Rectangle(f32, f32)
+}
+
+impl Shape {
+  fn area(&self) -> f32 {
+    use Shape::*;
+    match self {
+      Circle(r) => PI * r * r,
+      Rectangle(w, h) => w * h
+    }
+  }
+}
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 struct MySprite {
@@ -298,7 +337,84 @@ impl GenMesh {
     primitives::Rectangle::new(BILLBOARD_REL_SCALE, BILLBOARD_REL_SCALE).into()
   });
 }
+mod mymesh {
+  use {crate::BILLBOARD_REL_SCALE,
+       bevy::{math::primitives,
+              prelude::{Cuboid, Mesh}}};
+  type MeshFn = fn() -> Mesh;
+  pub const UNIT_CUBE: MeshFn = || Cuboid::new(1.0, 1.0, 1.0).into();
+  pub const UNIT_CYLINDER: MeshFn = || primitives::Cylinder::new(1.0, 1.0).into();
+  pub const CUBE: MeshFn = || Cuboid::new(0.7, 0.7, 0.7).into();
+  pub const BOX: MeshFn = || Cuboid::new(2.0, 1.0, 1.0).into();
+  pub const FLAT_BOX: MeshFn = || Cuboid::new(2.1, 0.3, 2.1).into();
+  pub const CAPSULE: MeshFn = || primitives::Capsule3d::default().into();
+  pub const TORUS: MeshFn = || primitives::Torus::default().into();
+  pub const SPHERE: MeshFn = || primitives::Sphere { radius: 1.0 }.into();
+  pub const PLANE_SIZE_50: MeshFn = || Cuboid::new(25.0, 0.1, 25.0).into();
+  pub const BILLBOARD_MESH_SQUARE: MeshFn =
+    || primitives::Rectangle::new(BILLBOARD_REL_SCALE, BILLBOARD_REL_SCALE).into();
+}
 
+// pub struct GenMeshNew(fn() -> dyn Into<Mesh>);
+
+// impl GenMeshNew {
+//   const fn new(f: fn() -> Box<dyn Into<Mesh>>) -> Self { Self(f) }
+//   pub const UNIT_CUBE: Self = Self::new({
+//     let f: fn() -> dyn Into<Mesh> = || Cuboid::new(1.0, 1.0, 1.0);
+//     // let d: &'static dyn IntoFn<Mesh> = &|| Cuboid::new(1.0, 1.0, 1.0);
+//     f
+//     // &|| Cuboid::new(1.0, 1.0, 1.0)
+//   });
+//   pub const UNIT_CUBE2: Self = Self::new(&|| Cuboid::new(1.0, 1.0, 1.0));
+// }
+const LKLH: &'static dyn Fn(i32) -> i32 = &(|a| a + 1);
+// const LAAKLH: &'static dyn Fn(i32) -> i32 = &(|a| a + 1);
+// const LAAKLH: dyn Fn(i32) -> i32 = (|a| a + 1);
+type IntoDynFn<T> = fn() -> dyn Into<T>;
+// const CUBOID_FN: IntoDynFn<Mesh> = || Cuboid::new(1.0, 1.0, 1.0);
+
+trait IntoFn<Target> {
+  fn call_to_get_target(&self) -> Target;
+}
+impl<T, I: Into<T>> IntoFn<T> for fn() -> I {
+  fn call_to_get_target(&self) -> T { self().into() }
+}
+
+// #[derive(Hash, Eq, PartialEq)]
+comment! {
+  pub struct GenMeshNew(&'static dyn IntoFn<Mesh>);
+
+  impl GenMeshNew {
+    const fn new(f: &'static dyn IntoFn<Mesh>) -> Self { Self(f) }
+    pub const UNIT_CUBE: Self = Self::new({
+      const f: fn() -> Cuboid = || Cuboid::new(1.0, 1.0, 1.0);
+      const k: &'static dyn IntoFn<Mesh> = &f;
+      // let d: &'static dyn IntoFn<Mesh> = &|| Cuboid::new(1.0, 1.0, 1.0);
+      k
+      // &|| Cuboid::new(1.0, 1.0, 1.0)
+    });
+    pub const UNIT_CUBE2: Self = Self::new(&|| Cuboid::new(1.0, 1.0, 1.0));
+  }
+  pub static PLANE_SIZE_30: GenMeshNew = GenMeshNew::new(|| Cuboid::new(25.0, 0.1, 25.0));
+}
+macro_rules! lazy {
+  ($NAME:ident, $type:ty, $value:expr) => {
+    static $NAME: LazyLock<$type> = LazyLock::new(|| $value);
+  };
+}
+static ASDFA: i32 = 5;
+
+// lazy!(ASDAAAS, Vec<i32>, vec![1, 2, 3]);
+// static LKJLJ: Box<i32> = Box::leak(5);
+
+// static STATIC_CTOR: HashMap<u32, &'static str> = {
+//   let mut m = HashMap::new();
+//   m.insert(0, "foo");
+//   m.insert(1, "bar");
+//   m.insert(2, "baz");
+//   // libc_eprintln!("STATIC_CTOR");
+//   m
+// };
 fn array_range<const LEN: usize>() -> [usize; LEN] {
   let mut arr = [0; LEN];
   for i in 0..LEN {
@@ -506,7 +622,7 @@ pub fn set_prev_loc(mut c: Commands,
 pub fn position_sprite_billboards(camq: Single<&Transform, With<Camera3d>>,
                                   mut c: Commands,
                                   time: ResMut<TimeTicks>,
-                                  frame_timestamp: ResMut<FrameTimeStamp>,
+                                  // frame_timestamp: ResMut<FrameTimeStamp>,
                                   mut billboardsq: Query<(Entity,
                                          &Location,
                                          Option<&PrevLocation>,
@@ -514,7 +630,7 @@ pub fn position_sprite_billboards(camq: Single<&Transform, With<Camera3d>>,
                                         (With<Visuals>,
                                          Without<Camera3d>)>) {
   // a frame every TICK_TIME ticks
-  let time_since = time.0 - frame_timestamp.0;
+  let time_since = time.time_since_sim_frame();
   let cam_transform = **camq;
   for (e, loc, oprevloc, mut transform) in &mut billboardsq {
     // let dir = Vec3 { y: 0.0,
@@ -562,16 +678,17 @@ enum Dir {
 
 impl From<Dir> for IVec2 {
   fn from(dir: Dir) -> Self {
+    use Dir::*;
     match dir {
-      Dir::North => IVec2::NEG_Y,                    // Up
-      Dir::Northeast => IVec2::X + IVec2::NEG_Y,     // Up-Right
-      Dir::Northwest => IVec2::NEG_X + IVec2::NEG_Y, // Up-Left
-      Dir::South => IVec2::Y,                        // Down
-      Dir::Southwest => IVec2::NEG_X + IVec2::Y,     // Down-Left
-      Dir::Southeast => IVec2::X + IVec2::Y,         // Down-Right
-      Dir::East => IVec2::X,                         // Right
-      Dir::West => IVec2::NEG_X,                     // Left
-      Dir::Here => IVec2::ZERO                       // No movement
+      North => IVec2::NEG_Y,                    // Up
+      Northeast => IVec2::X + IVec2::NEG_Y,     // Up-Right
+      Northwest => IVec2::NEG_X + IVec2::NEG_Y, // Up-Left
+      South => IVec2::Y,                        // Down
+      Southwest => IVec2::NEG_X + IVec2::Y,     // Down-Left
+      Southeast => IVec2::X + IVec2::Y,         // Down-Right
+      East => IVec2::X,                         // Right
+      West => IVec2::NEG_X,                     // Left
+      Here => IVec2::ZERO                       // No movement
     }
   }
 }
@@ -782,6 +899,10 @@ fn takeable_tool_entity(loc: Location, mat: Material, kind: Tool) -> impl Bundle
 fn takeable_weapon_entity(loc: Location, mat: Material, kind: Weapon) -> impl Bundle {
   takeable_item_entity(loc, Item::Weapon { mat, kind })
 }
+struct BoxFn<A, B>(Box<dyn Fn(A) -> B>);
+impl<A, B> BoxFn<A, B> {
+  fn new(f: impl Fn(A) -> B + 'static) -> Self { Self(Box::new(f)) }
+}
 
 comment! {
   #[derive(Clone, Copy)]
@@ -852,17 +973,11 @@ fn sheep() -> impl Bundle { basic_animal("sheep", '🐑') }
 fn duck() -> impl Bundle { basic_animal("duck", '🦆') }
 fn rabbit() -> impl Bundle { basic_animal("rabbit", '🐇') }
 
-fn player() -> impl Bundle {
-  (name("You"),
-   TryToMove::default(),
-   Player {},
-   Combat { hp: 30,
-            damage: 1,
-            is_hostile: false },
-   Visuals::sprite(MySprite::SPACEWIZARD))
-}
-
 fn enemy() -> impl Bundle {
+  let k: &dyn std::ops::Add<i32, Output = i32> = &5;
+  // EntityMut
+  // World::entity_mut
+  // EventReader
   (name("enemy"),
    EnemyMovement,
    AttackPlayer,
@@ -1024,6 +1139,26 @@ fn block_entity(loc: Location, block_type: BlockType) -> impl Bundle {
 // enum WorldLocationKind{
 //   Wall,Floor,Air
 // }
+#[derive(QueryData)]
+#[query_data(mutable)]
+struct NameQ {
+  name: &'static mut Name
+}
+fn cartesian_product<C: Clone,
+                     D: Clone,
+                     A: IntoIterator<Item = C>,
+                     B: IntoIterator<Item = D>>(
+  iter_a: A,
+  iter_b: B)
+  -> Vec<(C, D)> {
+  let vec_b = vec(iter_b);
+  fold(|acc: Vec<(C, D)>, item1| {
+         vec_push_many(acc,
+                       map(|item2| (item1.clone(), item2.clone()), vec_b.clone()))
+       },
+       default(),
+       iter_a)
+}
 
 #[derive(Component, Copy, Clone, Debug, Default)]
 #[component(storage = "SparseSet")]
@@ -1033,18 +1168,23 @@ pub struct Location(pub IVec3);
 impl Location {
   pub const fn new(x: i32, y: i32, z: i32) -> Self { Self(IVec3::new(x, y, z)) }
   pub fn adjacents(self) -> Vec<Self> {
-    mapv(|pos| (self.0 + pos).into(), [IVec3::new(1, 0, 0),
-                                       IVec3::new(-1, 0, 0),
-                                       IVec3::new(0, 0, 1),
-                                       IVec3::new(0, 0, -1),
-                                       IVec3::new(1, 1, 0),
-                                       IVec3::new(-1, 1, 0),
-                                       IVec3::new(0, 1, 1),
-                                       IVec3::new(0, 1, -1),
-                                       IVec3::new(1, -1, 0),
-                                       IVec3::new(-1, -1, 0),
-                                       IVec3::new(0, -1, 1),
-                                       IVec3::new(0, -1, -1)])
+    let range = [-1, 0, 1];
+    let rel_coords = map(|(x, (y, z))| IVec3::new(x, y, z),
+                         cartesian_product(range, cartesian_product(range, range)));
+    let coords = mapv(|rel_pos| (self.0 + rel_pos).into(), rel_coords);
+    coords
+    // mapv(|pos| (self.0 + pos).into(), [IVec3::new(1, 0, 0),
+    //                                    IVec3::new(-1, 0, 0),
+    //                                    IVec3::new(0, 0, 1),
+    //                                    IVec3::new(0, 0, -1),
+    //                                    IVec3::new(1, 1, 0),
+    //                                    IVec3::new(-1, 1, 0),
+    //                                    IVec3::new(0, 1, 1),
+    //                                    IVec3::new(0, 1, -1),
+    //                                    IVec3::new(1, -1, 0),
+    //                                    IVec3::new(-1, -1, 0),
+    //                                    IVec3::new(0, -1, 1),
+    //                                    IVec3::new(0, -1, -1)])
   }
   pub const fn above(self) -> Self { Self(IVec3::new(self.0.x, self.0.y + 1, self.0.z)) }
   pub const fn below(self) -> Self { Self(IVec3::new(self.0.x, self.0.y - 1, self.0.z)) }
@@ -1428,9 +1568,9 @@ impl<'w, 's> BlocksParam<'w, 's> {
 //   // voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
 // }
 
-fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTimeStamp>) {
-  frame_timestamp.0 = time.0;
-}
+// fn set_frame_timestamp(time: Res<TimeTicks>, mut frame_timestamp: ResMut<FrameTimeStamp>) {
+//   frame_timestamp.0 = time.0;
+// }
 // fn player_movement(keys: Res<ButtonInput<KeyCode>>,
 //                    mut player_query: Query<&mut TryToMove, With<Player>>) {
 //   if let Some(&key) = keys.pressed().nth(0)
@@ -1576,9 +1716,12 @@ fn camera_follow_player(mut camq: Single<(&mut Camera3d, &mut Transform),
 
 #[derive(Component)]
 struct Sun;
+
 pub fn sun_movement(mut camq: Single<&GlobalTransform, With<Camera3d>>,
                     time: Res<Time>,
                     mut sunq: Single<&mut Transform, With<Sun>>) {
+  // World::load_asset_with_settings(…) (as DirectAssetAccessExt)
+  // System
   let camera_globaltransform = *camq;
   let mut sun_transform = sunq.into_inner();
   let rot_time_seconds = 10.0;
@@ -1665,33 +1808,6 @@ fn origin_time(q: Query<Entity, Without<OriginTime>>,
     c.entity(e).insert(OriginTime(time_ticks.0));
   }
 }
-// fn filter_least_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
-//                                           coll: impl IntoIterator<Item = T>)
-//                                           -> Option<R> {
-//   coll.into_iter()
-//       .filter_map(f)
-//       .min_by_key(|(_, o)| o.clone())
-//       .map(|(r, _)| r)
-// }
-
-// fn filter_least<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
-//                                    coll: impl IntoIterator<Item = T>)
-//                                    -> Option<T> {
-//   filter_least_map(|t| f(&t).map(|v| (t, v)), coll)
-// }
-// fn filter_most_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
-//                                          coll: impl IntoIterator<Item = T>)
-//                                          -> Option<R> {
-//   coll.into_iter()
-//       .filter_map(f)
-//       .max_by_key(|(_, o)| o.clone())
-//       .map(|(r, _)| r)
-// }
-// fn filter_most<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
-//                                   coll: impl IntoIterator<Item = T>)
-//                                   -> Option<T> {
-//   filter_most_map(|t| f(&t).map(|v| (t, v)), coll)
-// }
 
 // #[derive(Component, Default, Clone)]
 // pub struct Container(pub HashSet<Entity>);
@@ -1730,10 +1846,14 @@ enum Navigation {
 pub struct TimeTicks(pub u32);
 
 impl TimeTicks {
-  fn is_sim_frame_tick(&self)->bool{}
+  fn time_since_sim_frame(&self) -> usize { self.0 as usize % FRAME_TIME_TICKS }
+  fn is_sim_frame(&self) -> bool { self.time_since_sim_frame() == 0 }
 }
-#[derive(Default, Resource)]
-pub struct FrameTimeStamp(pub u32);
+fn is_sim_frame_condition(time_ticks: Res<TimeTicks>) -> bool { time_ticks.is_sim_frame() }
+
+// fn every_n_ticks<const N: usize>(time: Res<TimeTicks>) -> bool { time.0 as usize % N == 0 }
+// #[derive(Default, Resource)]
+// pub struct FrameTimeStamp(pub u32);
 
 pub fn increment_time(mut time: ResMut<TimeTicks>) { time.0 += 1; }
 // pub fn timed_animation_system(time_ticks: Res<TimeTicks>,
@@ -1760,6 +1880,7 @@ fn close_on_esc(mut exit: EventWriter<AppExit>, keyboard_input: Res<ButtonInput<
 }
 
 fn namefmt(oname: Option<&Name>) -> String {
+  // ASDAAAS.
   match oname {
     Some(name) => name.to_string(),
     None => "unnamed entity".to_string()
@@ -1783,6 +1904,7 @@ pub struct UIData {
 const UI_BACKGROUND_COLOR: Color = Color::srgba(0.9, 0.9, 0.7, 1.0);
 const UI_BORDER_COLOR: Color = Color::srgba(0.8, 0.8, 0.7, 1.0);
 const UI_FONT_COLOR: Color = Color::srgba(0.3, 0.3, 0.3, 1.0);
+
 comment! {
   pub fn common_style(sb: &mut StyleBuilder) {
     sb.font_size(32.0)
@@ -1936,16 +2058,76 @@ fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 type NumberFunction = fn(i32) -> i32;
 
 const INC: NumberFunction = |x| x + 1;
+const DEC: &'static dyn Fn(i32) -> i32 = &|x| x - 1;
 
+// fn player() -> impl Bundle {
+//   (name("You"),
+//    TryToMove::default(),
+//    Player {},
+//    Combat { hp: 30,
+//             damage: 1,
+//             is_hostile: false },
+//    Visuals::sprite(MySprite::SPACEWIZARD))
+// }
 #[derive(Component, Debug, Default)]
+#[require(
+  Name(|| name("You")),
+  TryToMove(TryToMove::default),
+  Combat(|| Combat { hp: 30,
+                  damage: 1,
+                  is_hostile: false }),
+  Visuals(|| Visuals::sprite(MySprite::SPACEWIZARD))
+)]
 pub struct Player {}
 
 #[derive(Component, Debug)]
 pub struct CameraPosIndicator;
 #[derive(Component, Debug)]
 pub struct CameraTarget;
+// {
+//   Display
+// }
 
 fn default_array<T: Default + Copy, const N: usize>() -> [T; N] { [T::default(); N] }
+
+use haalka::{prelude::*, raw::Spawnable};
+#[derive(Component)]
+struct Counter(Mutable<i32>);
+
+fn ui_root() -> impl Element {
+  let counter = Mutable::new(0);
+  El::<Node>::new()
+        .height(Val::Percent(100.))
+        .width(Val::Percent(100.))
+        .align_content(Align::center())
+        .child(
+            Row::<Node>::new()
+                .with_node(|mut node| node.column_gap = Val::Px(15.0))
+                .item(counter_button(counter.clone(), "-", -1))
+                .item(
+                    El::<Text>::new()
+                        .text_font(TextFont::from_font_size(25.))
+                        .text_signal(counter.signal_ref(ToString::to_string).map(Text)),
+                )
+                .item(counter_button(counter.clone(), "+", 1))
+                .update_raw_el(move |raw_el| raw_el.insert(Counter(counter))),
+        )
+}
+
+fn counter_button(counter: Mutable<i32>, label: &str, step: i32) -> impl Element {
+  let hovered = Mutable::new(false);
+  El::<Node>::new().width(Val::Px(45.0))
+                   .align_content(Align::center())
+                   .background_color_signal(hovered.signal()
+                                                   .map_bool(|| Color::hsl(300., 0.75, 0.85),
+                                                             || Color::hsl(300., 0.75, 0.75))
+                                                   .map(Into::into))
+                   .border_radius(BorderRadius::MAX)
+                   .hovered_sync(hovered)
+                   .on_click(move || *counter.lock_mut() += step)
+                   .child(El::<Text>::new().text_font(TextFont::from_font_size(25.))
+                                           .text(Text::new(label)))
+}
 
 pub fn setup(playerq: Query<&Transform, With<Player>>,
              serv: Res<AssetServer>,
@@ -2007,7 +2189,9 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn((Location::default(),
            CameraTarget,
            Visuals::unlit_sprite(MySprite::WHITE_CORNERS)));
-  c.spawn((Location::default(), Player::default()));
+  // c.spawn((Location::default(), Player::default()));
+  c.spawn(Player {}).insert(Location::new(5, 12, 5));
+
   c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::COFFEE)));
   c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::COFFEE)));
   c.spawn((Location::new(5, 12, 5), Visuals::sprite(MySprite::COFFEE)));
@@ -2015,7 +2199,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
   c.spawn(basic_npc(Location::new(5, 12, 5), "Zorp", MySprite::ZORP));
   c.spawn(basic_npc(Location::new(5, 12, 5), "You", MySprite::PLAYER));
-  c.spawn(player()).insert(Location::new(5, 12, 5));
+
   c.spawn((Location::new(5, 12, 4), Visuals::sprite(MySprite::GATE)));
   c.spawn((Location::new(5, 12, 3), Visuals::sprite(MySprite::PORTAL)));
   c.spawn((Location::new(5, 12, 2), Visuals::sprite(MySprite::SPACEMAN)));
@@ -2158,7 +2342,7 @@ impl From<BlockType> for WorldVoxel {
 //   voxel_world.set_voxel(IVec3::new(0, 1, 0), BlockType::Snow.into());
 // }
 
-struct Spawnable(fn(&mut Commands, Location));
+// struct Spawnable(fn(&mut Commands, Location));
 
 type Template = fn(&mut Commands, Vec3);
 macro_rules! template {
@@ -2634,7 +2818,6 @@ comment! {
 
   }
 }
-fn every_n_ticks<const N: usize>(time: Res<TimeTicks>) -> bool { time.0 as usize % N == 0 }
 #[bevy_main]
 pub fn main() {
   let voxel_material = MyMaterial::BLOCKS.val();
@@ -2696,35 +2879,36 @@ pub fn main() {
     .init_state::<GameState>()
     .init_resource::<PressedKeys>()
     .init_resource::<UIData>()
-    .init_resource::<FrameTimeStamp>()
     .init_resource::<TimeTicks>()
 
     // .init_resource::<WorldLocationMap>()
     .insert_resource(ClearColor(mycolor::CLEAR))
     .insert_resource(AMBIENT_LIGHT)
     // .insert_resource(Msaa::Sample4)
-    .add_systems(Startup, setup)
+    .add_systems(Startup, (setup,
+|world: &mut World| {
+  ui_root().spawn(world);
+                },
+    ))
 
     .add_systems(Update,
-                 ((increment_time,
-                   origin_time,
+                 ((
                    get_pressed_keys,
                    // timed_animation_system,
                  ).chain(),
                   (set_prev_loc,
-                   // sync_locations_new,
-                   set_frame_timestamp,
                    player_movement,
                    random_movement,
                    try_movement,
-                   movement).chain().run_if(every_n_ticks::<FRAME_TIME_TICKS>),
+                   movement).chain().run_if(is_sim_frame_condition),
                   position_sprite_billboards,
                   camera_follow_player,
-                  // proximity_system,
                   visuals,
                   // ui,
                   sun_movement,
                   close_on_esc,
+                  origin_time,
+                  increment_time,
                  ).chain())
     // .add_systems(Update,((
     //   sync_locations_new,

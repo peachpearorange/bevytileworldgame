@@ -118,3 +118,5 @@ derive_more = { version = "*", features = ["from", "add"] }
 bevy_ecs_tilemap = "0.15.0"
 glam = "0.29.2"
 bevy_mod_index = "0.6.0"
+haalka = "0.3.0"
+# ctor = "0.2.9"
